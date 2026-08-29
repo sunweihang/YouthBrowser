@@ -11,6 +11,12 @@
 - **账号与同步**：注册/登录后，配置组可上传到服务器、从服务器拉取到其它设备
 - 家长密码保护本机设置页（不同步）
 
+## 下载
+
+公开下载页（含历史版本）：
+
+http://182.92.120.159/downloads/jianxing/
+
 ## 同步服务
 
 服务端代码：`server/sync-server.js`  
@@ -18,10 +24,9 @@
 
 ## 自动更新
 
-更新源：`http://182.92.120.159/downloads/jianxing/`（`latest.yml` + 安装包）
+更新源目录与下载页相同。发布新版本：
 
 ```bash
-# 打包并上传到更新源（需设置 SSH 密码）
 set JIANXING_SSH_PASSWORD=***
 npm run release
 ```
