@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>简行浏览器</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="chrome">
+    <div class="brand-chip" title="简行浏览器">简行</div>
+    <div class="tabs" id="tabs"></div>
+    <button type="button" class="icon-btn" id="newTab" title="新标签">+</button>
+    <div class="spacer"></div>
+    <button type="button" class="text-btn" id="parentBtn">家长</button>
+  </header>
+  <div class="toolbar">
+    <button type="button" class="icon-btn" id="back" title="后退" disabled>←</button>
+    <button type="button" class="icon-btn" id="forward" title="前进" disabled>→</button>
+    <button type="button" class="icon-btn" id="reload" title="刷新">↻</button>
+    <form id="navForm" class="url-form">
+      <input id="urlInput" type="text" spellcheck="false" autocomplete="off" placeholder="输入已授权的网址" />
+    </form>
+    <button type="button" class="icon-btn star-btn" id="bookmarkBtn" title="收藏本页">☆</button>
+  </div>
+  <div class="bookmarks" id="bookmarksBar">
+    <span class="bookmarks-label">收藏夹</span>
+    <div class="bookmarks-items" id="bookmarksItems"></div>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>

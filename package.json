@@ -1,0 +1,50 @@
+{
+  "name": "jianxing-browser",
+  "version": "1.0.0",
+  "description": "简行浏览器：青少年专用，配置组白名单 + 站点扩展（含 B 站 UP）+ 收藏夹",
+  "main": "dist/main/index.js",
+  "author": "简行浏览器",
+  "license": "MIT",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "start": "npm run build && electron .",
+    "dev": "npm run build && electron .",
+    "pack": "npm run build && electron-builder --dir",
+    "dist": "npm run build && electron-builder",
+    "smoke": "node scripts/smoke-nav.mjs"
+  },
+  "build": {
+    "appId": "com.jianxing.browser",
+    "productName": "简行浏览器",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": ["nsis"],
+      "executableName": "JianXingBrowser"
+    },
+    "mac": {
+      "target": ["dmg"],
+      "category": "public.app-category.education"
+    },
+    "linux": {
+      "target": ["AppImage"],
+      "category": "Network"
+    },
+    "nsis": {
+      "shortcutName": "简行浏览器",
+      "artifactName": "简行浏览器 Setup ${version}.${ext}"
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "electron": "^34.3.0",
+    "electron-builder": "^25.1.8",
+    "esbuild": "^0.25.1",
+    "typescript": "^5.8.2"
+  }
+}

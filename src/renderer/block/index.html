@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>访问被拦截</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="panel">
+    <p class="brand">简行浏览器</p>
+    <h1>此页面不可访问</h1>
+    <p class="msg" id="message">未授权的网站或内容</p>
+    <dl class="meta">
+      <dt>地址</dt>
+      <dd id="url">—</dd>
+      <dt>原因</dt>
+      <dd id="reason">—</dd>
+    </dl>
+    <p class="hint">如需访问，请联系家长在「家长」设置中添加白名单。</p>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>

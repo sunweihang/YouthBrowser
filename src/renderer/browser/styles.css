@@ -1,0 +1,252 @@
+:root {
+  --bg: #1a2332;
+  --bg-2: #243044;
+  --line: #3a4a63;
+  --text: #e8eef7;
+  --muted: #9aabbf;
+  --accent: #3d8bfd;
+  --danger: #e85d5d;
+  --tab-active: #2c3c54;
+  --radius: 8px;
+  font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  overflow: hidden;
+  user-select: none;
+}
+
+.chrome {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 40px;
+  padding: 4px 8px 0;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+}
+
+.brand-chip {
+  flex-shrink: 0;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 6px;
+  background: rgba(61, 139, 253, 0.16);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  display: inline-flex;
+  align-items: center;
+}
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  flex: 1;
+  min-width: 0;
+  scrollbar-width: none;
+}
+
+.tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 180px;
+  height: 30px;
+  padding: 0 8px 0 12px;
+  border-radius: var(--radius) var(--radius) 0 0;
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid transparent;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.tab.active {
+  background: var(--tab-active);
+  color: var(--text);
+  border-color: var(--line);
+  border-bottom-color: var(--tab-active);
+}
+
+.tab-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  flex: 1;
+}
+
+.tab-close {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+  border-radius: 4px;
+}
+
+.tab-close:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text);
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 48px;
+  padding: 6px 10px;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--line);
+}
+
+.icon-btn,
+.text-btn {
+  height: 32px;
+  min-width: 32px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.icon-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.icon-btn:not(:disabled):hover,
+.text-btn:hover {
+  border-color: var(--accent);
+}
+
+.star-btn.active {
+  color: #f0c14b;
+  border-color: rgba(240, 193, 75, 0.55);
+}
+
+.text-btn {
+  padding: 0 12px;
+  font-size: 13px;
+}
+
+.spacer {
+  flex: 0 0 8px;
+}
+
+.url-form {
+  flex: 1;
+  min-width: 0;
+}
+
+#urlInput {
+  width: 100%;
+  height: 34px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--text);
+  padding: 0 14px;
+  font-size: 13px;
+  outline: none;
+}
+
+#urlInput:focus {
+  border-color: var(--accent);
+}
+
+.bookmarks {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 10px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+}
+
+.bookmarks-label {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.bookmarks-items {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow-x: auto;
+  flex: 1;
+  min-width: 0;
+  scrollbar-width: none;
+}
+
+.bookmarks-items::-webkit-scrollbar {
+  display: none;
+}
+
+.bookmark-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 160px;
+  height: 26px;
+  padding: 0 6px 0 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--bg-2);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.bookmark-chip:hover {
+  border-color: var(--accent);
+}
+
+.bookmark-chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bookmark-chip .bm-remove {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 0 2px;
+  border-radius: 4px;
+}
+
+.bookmark-chip .bm-remove:hover {
+  color: var(--danger);
+}
+
+.bookmarks-empty {
+  font-size: 12px;
+  color: var(--muted);
+}

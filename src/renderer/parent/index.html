@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>家长设置</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="authShell" class="auth-shell">
+    <section id="setupPanel" class="auth-card hidden">
+      <p class="brand">简行浏览器</p>
+      <h1>首次设置</h1>
+      <p class="sub">创建家长密码后，才能管理配置组。</p>
+      <label>新密码<input id="setupPass" type="password" autocomplete="new-password" /></label>
+      <label>确认密码<input id="setupPass2" type="password" autocomplete="new-password" /></label>
+      <p class="error" id="setupError"></p>
+      <button type="button" id="setupBtn" class="primary">创建并进入设置</button>
+    </section>
+
+    <section id="unlockPanel" class="auth-card hidden">
+      <p class="brand">简行浏览器</p>
+      <h1>家长验证</h1>
+      <p class="sub">输入密码以管理配置组。</p>
+      <label>家长密码<input id="unlockPass" type="password" autocomplete="current-password" /></label>
+      <p class="error" id="unlockError"></p>
+      <button type="button" id="unlockBtn" class="primary">解锁</button>
+    </section>
+  </div>
+
+  <div id="dashboard" class="app hidden">
+    <aside class="nav">
+      <div class="nav-brand">
+        <p class="brand">简行浏览器</p>
+        <h1>家长设置</h1>
+      </div>
+      <nav class="nav-list" aria-label="设置分类">
+        <button type="button" class="nav-item active" data-page="overview">概览</button>
+        <button type="button" class="nav-item" data-page="groups">配置组</button>
+        <button type="button" class="nav-item" data-page="security">账号安全</button>
+      </nav>
+      <p class="nav-foot" id="navSummary">—</p>
+    </aside>
+
+    <div class="content">
+      <section class="page active" id="page-overview" data-page="overview">
+        <header class="page-head">
+          <h2>概览</h2>
+          <p class="sub">访问控制按「配置组」管理。每个组可绑定域名，并可挂载站点扩展（如 B 站 UP 过滤）。</p>
+        </header>
+        <div class="stat-grid">
+          <article class="stat">
+            <p class="stat-label">配置组</p>
+            <p class="stat-value" id="statGroups">0</p>
+            <button type="button" class="link-btn" data-goto="groups">去管理 →</button>
+          </article>
+          <article class="stat">
+            <p class="stat-label">已启用</p>
+            <p class="stat-value" id="statEnabled">0</p>
+            <button type="button" class="link-btn" data-goto="groups">查看 →</button>
+          </article>
+        </div>
+        <div class="card tip-card">
+          <h3>怎么用</h3>
+          <ol class="tips">
+            <li>在「配置组」新建一组（例如命名为「B 站」）。</li>
+            <li>选择扩展类型：普通站点选「无」；哔哩哔哩选「B 站」。</li>
+            <li>在组内增删域名；若选了 B 站扩展，再配置允许的 UP。</li>
+            <li>未匹配任何启用配置组的网站一律拦截。</li>
+          </ol>
+        </div>
+      </section>
+
+      <section class="page" id="page-groups" data-page="groups">
+        <div id="groupsListView">
+          <header class="page-head page-head-row">
+            <div>
+              <h2>配置组</h2>
+              <p class="sub">管理全部访问配置组。开启后生效，点「编辑」进入详细配置。</p>
+            </div>
+            <button type="button" class="primary" id="openCreateBtn">新建</button>
+          </header>
+
+          <div class="card list-card">
+            <ul id="groupList" class="group-list"></ul>
+            <p class="empty" id="groupEmpty">还没有配置组。点击右上角「新建」添加。</p>
+          </div>
+        </div>
+
+        <div id="groupDetailView" class="hidden">
+          <button type="button" class="back-btn" id="backToGroups">← 返回列表</button>
+          <header class="page-head">
+            <h2 id="detailTitle">配置组</h2>
+            <p class="sub" id="detailSub"></p>
+          </header>
+
+          <div class="card">
+            <h3>基本信息</h3>
+            <form id="detailMetaForm" class="stack-form">
+              <label>名称<input id="detailName" type="text" /></label>
+              <label>扩展类型
+                <select id="detailExt"></select>
+              </label>
+              <p class="help">切换扩展会清空该扩展专属配置（如 UP 列表），域名会保留。启停请在列表页开关。</p>
+              <div class="row-actions">
+                <button type="submit" class="primary">保存</button>
+                <button type="button" id="deleteGroupBtn" class="danger-solid">删除配置组</button>
+              </div>
+            </form>
+            <p class="error" id="detailMetaError"></p>
+            <p class="ok" id="detailMetaOk"></p>
+          </div>
+
+          <div class="card">
+            <h3>域名</h3>
+            <p class="help">支持精确 host，或 <code>*.example.com</code>。</p>
+            <form id="detailHostForm" class="row">
+              <input id="detailHostInput" type="text" placeholder="例如 www.example.com" />
+              <button type="submit" class="primary">添加</button>
+            </form>
+            <ul id="detailHostList" class="list"></ul>
+            <p class="empty" id="detailHostEmpty">暂无域名</p>
+          </div>
+
+          <div class="card hidden" id="biliExtPanel">
+            <h3>B 站扩展 · UP 白名单</h3>
+            <p class="help">仅允许这些 UP 的空间与视频；首页/搜索等默认拦截。</p>
+            <form id="detailUpForm" class="stack-form">
+              <label>空间链接或 mid
+                <input id="detailUpInput" type="text" placeholder="https://space.bilibili.com/123 或 mid" />
+              </label>
+              <label>备注（可选）
+                <input id="detailUpNote" type="text" placeholder="方便辨认" />
+              </label>
+              <button type="submit" class="primary">添加 UP</button>
+            </form>
+            <p class="error" id="detailUpError"></p>
+            <ul id="detailUpList" class="list"></ul>
+            <p class="empty" id="detailUpEmpty">未添加 UP 时，匹配到本组成员的 B 站内容都会被拦截。</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Create group modal -->
+      <div id="createModal" class="modal hidden" role="dialog" aria-modal="true">
+        <div class="modal-backdrop" id="createModalBackdrop"></div>
+        <div class="modal-card">
+          <h3>新建配置组</h3>
+          <form id="createGroupForm" class="stack-form">
+            <label>名称
+              <input id="newGroupName" type="text" placeholder="例如：B 站、学习网站" required />
+            </label>
+            <label>扩展类型
+              <select id="newGroupExt"></select>
+            </label>
+            <label class="check-row" id="suggestHostsRow">
+              <input id="useSuggestedHosts" type="checkbox" checked />
+              <span>使用该扩展的推荐域名（可稍后修改）</span>
+            </label>
+            <p class="help" id="extHint"></p>
+            <p class="error" id="createGroupError"></p>
+            <div class="row-actions">
+              <button type="submit" class="primary">创建</button>
+              <button type="button" id="cancelCreateBtn">取消</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <section class="page" id="page-security" data-page="security">
+        <header class="page-head">
+          <h2>账号安全</h2>
+          <p class="sub">家长密码用于打开本设置窗口。</p>
+        </header>
+        <div class="card">
+          <h3>修改家长密码</h3>
+          <div class="stack-form">
+            <label>当前密码<input id="curPass" type="password" autocomplete="current-password" /></label>
+            <label>新密码<input id="newPass" type="password" autocomplete="new-password" /></label>
+            <label>确认新密码<input id="newPass2" type="password" autocomplete="new-password" /></label>
+            <p class="error" id="passError"></p>
+            <p class="ok" id="passOk"></p>
+            <button type="button" id="changePassBtn" class="primary">更新密码</button>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
