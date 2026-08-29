@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>简行浏览器 · 下载</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,500;0,9..40,700;1,9..40,500&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --ink: #0e1620;
+      --paper: #f3f0e8;
+      --panel: #ffffff;
+      --line: #d5d0c4;
+      --muted: #5c6774;
+      --accent: #1f6feb;
+      --accent-ink: #0b3d91;
+      --ok: #1a7f4b;
+      --shadow: 0 18px 50px rgba(14, 22, 32, 0.08);
+      font-family: "DM Sans", "Noto Sans SC", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      background:
+        radial-gradient(900px 420px at 12% -10%, rgba(31, 111, 235, 0.14), transparent 55%),
+        radial-gradient(700px 380px at 100% 0%, rgba(26, 127, 75, 0.08), transparent 50%),
+        linear-gradient(180deg, #ebe6db 0%, var(--paper) 40%, #e7e2d8 100%);
+      color: var(--ink);
+    }
+
+    body {
+      padding: 28px 20px 64px;
+    }
+
+    .shell {
+      width: min(880px, 100%);
+      margin: 0 auto;
+    }
+
+    .hero {
+      padding: 28px 8px 36px;
+    }
+
+    .brand {
+      margin: 0 0 18px;
+      font-size: clamp(42px, 8vw, 72px);
+      line-height: 0.95;
+      letter-spacing: -0.04em;
+      font-weight: 700;
+    }
+
+    .tagline {
+      margin: 0;
+      max-width: 34em;
+      color: var(--muted);
+      font-size: 17px;
+      line-height: 1.55;
+    }
+
+    .latest {
+      margin-top: 28px;
+      padding: 22px 24px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      display: grid;
+      gap: 14px;
+    }
+
+    .latest-label {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--ok);
+    }
+
+    .latest-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+    }
+
+    .latest-ver {
+      margin: 0;
+      font-size: 28px;
+      letter-spacing: -0.03em;
+    }
+
+    .latest-meta {
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 44px;
+      padding: 0 18px;
+      border-radius: 999px;
+      border: 1px solid transparent;
+      background: var(--accent);
+      color: #fff;
+      text-decoration: none;
+      font-weight: 700;
+      font-size: 15px;
+      cursor: pointer;
+    }
+
+    .btn:hover { filter: brightness(1.05); }
+
+    .btn.ghost {
+      background: transparent;
+      border-color: var(--line);
+      color: var(--ink);
+    }
+
+    .section {
+      margin-top: 34px;
+    }
+
+    .section h2 {
+      margin: 0 0 12px;
+      font-size: 20px;
+      letter-spacing: -0.02em;
+    }
+
+    .list {
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.72);
+      overflow: hidden;
+    }
+
+    .item {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+      align-items: center;
+      padding: 16px 18px;
+      border-top: 1px solid var(--line);
+    }
+
+    .item:first-child { border-top: none; }
+
+    .item-title {
+      margin: 0;
+      font-size: 16px;
+      font-weight: 700;
+    }
+
+    .item-meta {
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .badge {
+      display: inline-block;
+      margin-left: 8px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: rgba(26, 127, 75, 0.12);
+      color: var(--ok);
+      font-size: 11px;
+      font-weight: 700;
+      vertical-align: middle;
+    }
+
+    .empty, .error {
+      padding: 22px 18px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .error { color: #b42318; }
+
+    .foot {
+      margin-top: 28px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    @media (max-width: 640px) {
+      .item {
+        grid-template-columns: 1fr;
+      }
+      .btn { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header class="hero">
+      <h1 class="brand">简行</h1>
+      <p class="tagline">青少年专用浏览器。家长用配置组管白名单，支持收藏夹与账号同步。在此下载 Windows 安装包。</p>
+
+      <div class="latest" id="latestCard">
+        <div class="latest-label">当前最新</div>
+        <div class="latest-row">
+          <div>
+            <p class="latest-ver" id="latestVersion">加载中…</p>
+            <p class="latest-meta" id="latestMeta"></p>
+          </div>
+          <a class="btn" id="latestBtn" href="#">下载最新版</a>
+        </div>
+      </div>
+    </header>
+
+    <section class="section">
+      <h2>历史版本</h2>
+      <div class="list" id="versionList">
+        <div class="empty">正在读取版本列表…</div>
+      </div>
+    </section>
+
+    <p class="foot">
+      安装后应用会自动检查更新。若只想手动换版本，从此页下载对应安装包即可。<br />
+      简行浏览器 · Windows x64
+    </p>
+  </div>
+
+  <script>
+    function formatBytes(n) {
+      if (!n || n <= 0) return '';
+      const mb = n / (1024 * 1024);
+      return mb >= 10 ? mb.toFixed(0) + ' MB' : mb.toFixed(1) + ' MB';
+    }
+
+    function formatDate(iso) {
+      if (!iso) return '';
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return String(iso);
+      return d.toLocaleString('zh-CN', { hour12: false });
+    }
+
+    function cmpVer(a, b) {
+      const pa = String(a || '0').split('.').map((x) => parseInt(x, 10) || 0);
+      const pb = String(b || '0').split('.').map((x) => parseInt(x, 10) || 0);
+      const n = Math.max(pa.length, pb.length);
+      for (let i = 0; i < n; i++) {
+        const da = pa[i] || 0;
+        const db = pb[i] || 0;
+        if (da !== db) return da - db;
+      }
+      return 0;
+    }
+
+    async function load() {
+      const listEl = document.getElementById('versionList');
+      const latestVersion = document.getElementById('latestVersion');
+      const latestMeta = document.getElementById('latestMeta');
+      const latestBtn = document.getElementById('latestBtn');
+
+      let data;
+      try {
+        const res = await fetch('versions.json?t=' + Date.now(), { cache: 'no-store' });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        data = await res.json();
+      } catch (e) {
+        listEl.innerHTML = '<div class="error">版本列表暂时无法加载，请稍后再试。</div>';
+        latestVersion.textContent = '暂不可用';
+        latestBtn.style.display = 'none';
+        return;
+      }
+
+      const versions = Array.isArray(data.versions) ? data.versions.slice() : [];
+      versions.sort((a, b) => cmpVer(b.version, a.version));
+
+      const latest =
+        versions.find((v) => v.version === data.latest) || versions[0] || null;
+
+      if (!latest) {
+        latestVersion.textContent = '暂无安装包';
+        latestBtn.style.display = 'none';
+        listEl.innerHTML = '<div class="empty">还没有发布版本。</div>';
+        return;
+      }
+
+      latestVersion.textContent = 'v' + latest.version;
+      latestMeta.textContent = [
+        formatBytes(latest.size),
+        formatDate(latest.releasedAt || latest.mtime),
+        latest.channel || 'Windows x64',
+      ]
+        .filter(Boolean)
+        .join(' · ');
+      latestBtn.href = latest.file;
+      latestBtn.setAttribute('download', '');
+
+      listEl.innerHTML = '';
+      for (const v of versions) {
+        const item = document.createElement('div');
+        item.className = 'item';
+        const isLatest = latest && v.version === latest.version;
+        item.innerHTML =
+          '<div>' +
+          '<p class="item-title">v' +
+          v.version +
+          (isLatest ? '<span class="badge">最新</span>' : '') +
+          '</p>' +
+          '<p class="item-meta">' +
+          [formatBytes(v.size), formatDate(v.releasedAt || v.mtime)]
+            .filter(Boolean)
+            .join(' · ') +
+          '</p>' +
+          '</div>';
+        const a = document.createElement('a');
+        a.className = 'btn ghost';
+        a.href = v.file;
+        a.textContent = '下载';
+        a.setAttribute('download', '');
+        item.appendChild(a);
+        listEl.appendChild(item);
+      }
+    }
+
+    load();
+  </script>
+</body>
+</html>

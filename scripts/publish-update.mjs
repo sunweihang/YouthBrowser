@@ -1,24 +1,21 @@
 /**
- * Upload Windows update artifacts to the Aliyun download mirror.
+ * Upload Windows update artifacts + refresh the public download page.
  *
  * Env:
- *   JIANXING_SSH_HOST     default 182.92.120.159
- *   JIANXING_SSH_USER     default lijin
- *   JIANXING_SSH_PASSWORD required (or pass as argv --password=)
- *
- * Uploads: JianXingBrowser-Setup-*.exe, *.blockmap, latest.yml
- * to /home/lijin/jianxing-browser/downloads and /var/www/jianliao/downloads/jianxing
+ *   JIANXING_SSH_HOST / JIANXING_SSH_USER / JIANXING_SSH_PASSWORD
  */
 import { createRequire } from 'module';
-import { existsSync, readdirSync, readFileSync, statSync } from 'fs';
+import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { fileURLToPath } from 'url';
+import { tmpdir } from 'os';
 
 const require = createRequire(import.meta.url);
 const { Client } = require('ssh2');
 
 const root = join(fileURLToPath(new URL('.', import.meta.url)), '..');
 const releaseDir = join(root, 'release');
+const pageDir = join(root, 'server', 'download-page');
 
 const host = process.env.JIANXING_SSH_HOST || '182.92.120.159';
 const username = process.env.JIANXING_SSH_USER || 'lijin';
@@ -41,9 +38,7 @@ function pickArtifacts() {
   const pathMatch = ymlText.match(/^path:\s*(.+)\s*$/m);
   const exeName = pathMatch ? pathMatch[1].trim() : '';
   if (!exeName || !existsSync(join(releaseDir, exeName))) {
-    throw new Error(
-      `latest.yml path "${exeName}" not found in ${releaseDir}`
-    );
+    throw new Error(`latest.yml path "${exeName}" not found in ${releaseDir}`);
   }
   const blockmapName = files.find((f) => f === `${exeName}.blockmap`) || null;
   return {
@@ -92,19 +87,71 @@ function upload(conn, localPath, remotePath) {
   });
 }
 
+function cmpVer(a, b) {
+  const pa = String(a || '0').split('.').map((x) => parseInt(x, 10) || 0);
+  const pb = String(b || '0').split('.').map((x) => parseInt(x, 10) || 0);
+  const n = Math.max(pa.length, pb.length);
+  for (let i = 0; i < n; i++) {
+    const da = pa[i] || 0;
+    const db = pb[i] || 0;
+    if (da !== db) return da - db;
+  }
+  return 0;
+}
+
+/** Build versions.json from remote listing stdout (ls -la style via python). */
+function buildVersionsJson(remoteListingJson, latestVersion) {
+  const files = JSON.parse(remoteListingJson);
+  const byVer = new Map();
+  for (const f of files) {
+    const m = String(f.name || '').match(
+      /^JianXingBrowser-Setup-(\d+\.\d+\.\d+)\.exe$/i
+    );
+    if (!m) continue;
+    byVer.set(m[1], {
+      version: m[1],
+      file: f.name,
+      size: Number(f.size) || 0,
+      mtime: f.mtime || null,
+      releasedAt: f.mtime || null,
+      channel: 'Windows x64',
+    });
+  }
+  const versions = [...byVer.values()].sort((a, b) =>
+    cmpVer(b.version, a.version)
+  );
+  const latest =
+    latestVersion && byVer.has(latestVersion)
+      ? latestVersion
+      : versions[0]?.version || null;
+  return {
+    generatedAt: new Date().toISOString(),
+    latest,
+    versions,
+  };
+}
+
 async function main() {
   if (!password) {
     console.error('Set JIANXING_SSH_PASSWORD or pass --password=...');
     process.exit(1);
   }
   const arts = pickArtifacts();
+  const ymlText = readFileSync(arts.yml, 'utf8');
+  const verMatch = ymlText.match(/^version:\s*(.+)\s*$/m);
+  const latestVersion = verMatch ? verMatch[1].trim() : null;
+  const pageHtml = join(pageDir, 'index.html');
+  if (!existsSync(pageHtml)) {
+    throw new Error(`Missing download page: ${pageHtml}`);
+  }
+
   console.log('Artifacts:', {
     exe: arts.exeName,
     size: statSync(arts.exe).size,
     yml: arts.ymlName,
     blockmap: arts.blockmapName,
+    latestVersion,
   });
-  console.log('latest.yml preview:\n' + readFileSync(arts.yml, 'utf8'));
 
   const conn = new Client();
   await new Promise((resolve, reject) => {
@@ -121,24 +168,53 @@ async function main() {
     if (arts.blockmap && arts.blockmapName) {
       await upload(conn, arts.blockmap, `${remoteHome}/${arts.blockmapName}`);
     }
+    await upload(conn, pageHtml, `${remoteHome}/index.html`);
 
     const copies = [
+      `sudo mkdir -p "${remoteWeb}"`,
       `sudo cp -f "${remoteHome}/${arts.exeName}" "${remoteWeb}/"`,
       `sudo cp -f "${remoteHome}/${arts.ymlName}" "${remoteWeb}/"`,
+      `sudo cp -f "${remoteHome}/index.html" "${remoteWeb}/"`,
     ];
     if (arts.blockmapName) {
       copies.push(
         `sudo cp -f "${remoteHome}/${arts.blockmapName}" "${remoteWeb}/"`
       );
     }
+    await exec(conn, copies.join(' && '));
+
+    const listing = await exec(
+      conn,
+      `python3 - <<'PY'
+import json, os, time
+root = "${remoteWeb}"
+out = []
+for name in os.listdir(root):
+    path = os.path.join(root, name)
+    if not os.path.isfile(path):
+        continue
+    st = os.stat(path)
+    out.append({
+        "name": name,
+        "size": st.st_size,
+        "mtime": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(st.st_mtime)),
+    })
+print(json.dumps(out, ensure_ascii=False))
+PY`
+    );
+
+    const versions = buildVersionsJson(listing, latestVersion);
+    const localVersions = join(tmpdir(), 'jianxing-versions.json');
+    writeFileSync(localVersions, JSON.stringify(versions, null, 2), 'utf8');
+    await upload(conn, localVersions, `${remoteHome}/versions.json`);
     await exec(
       conn,
-      `sudo mkdir -p "${remoteWeb}" && ${copies.join(' && ')} && sudo chmod -R a+rX "${remoteWeb}" && ls -lah "${remoteWeb}"`
+      `sudo cp -f "${remoteHome}/versions.json" "${remoteWeb}/" && sudo chmod -R a+rX "${remoteWeb}" && ls -lah "${remoteWeb}"`
     );
 
     console.log('Published.');
-    console.log(`Feed: http://${host}/downloads/jianxing/latest.yml`);
-    console.log(`Installer: http://${host}/downloads/jianxing/${arts.exeName}`);
+    console.log(`Download page: http://${host}/downloads/jianxing/`);
+    console.log(`Versions: ${versions.versions.map((v) => v.version).join(', ')}`);
   } finally {
     conn.end();
   }
