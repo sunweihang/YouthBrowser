@@ -1,13 +1,30 @@
 # 简行浏览器
 
-跨平台青少年浏览器（Windows / macOS / Linux）：家长通过**配置组**管理可访问网站，支持站点扩展（如 B 站 UP 白名单），并提供**网页收藏夹**。
+跨平台青少年浏览器（Windows / macOS / Linux）：家长通过**配置组**管理可访问网站，支持站点扩展、收藏夹，以及**账号云同步**。
 
 ## 功能
 
 - **配置组**：自由增删改；每组绑定域名，可挂扩展
 - **B 站扩展**：仅放行组内 UP 的空间与视频
-- **收藏夹**：地址栏旁☆收藏当前页，顶栏收藏夹一键打开
-- 家长密码保护设置页
+- **收藏夹**：文件夹、拖拽、管理窗口
+- **自动更新**：启动后检查服务器，有新版本则自动下载并提示安装
+- **账号与同步**：注册/登录后，配置组可上传到服务器、从服务器拉取到其它设备
+- 家长密码保护本机设置页（不同步）
+
+## 同步服务
+
+服务端代码：`server/sync-server.js`  
+公网 API：`http://182.92.120.159/jianxing-api/health`
+
+## 自动更新
+
+更新源：`http://182.92.120.159/downloads/jianxing/`（`latest.yml` + 安装包）
+
+```bash
+# 打包并上传到更新源（需设置 SSH 密码）
+set JIANXING_SSH_PASSWORD=***
+npm run release
+```
 
 ## 开发运行
 
@@ -23,5 +40,3 @@ set ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/
 set ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/
 npm run dist
 ```
-
-产物在 `release/`。

@@ -20,6 +20,13 @@ contextBridge.exposeInMainWorld('youthParent', {
     ipcRenderer.invoke('parent:addBiliUp', groupId, midOrUrl, note),
   removeBiliUp: (groupId, mid) =>
     ipcRenderer.invoke('parent:removeBiliUp', groupId, mid),
+  getAccount: () => ipcRenderer.invoke('account:get'),
+  getSyncStatus: () => ipcRenderer.invoke('account:syncStatus'),
+  registerAccount: (input) => ipcRenderer.invoke('account:register', input),
+  loginAccount: (input) => ipcRenderer.invoke('account:login', input),
+  logoutAccount: () => ipcRenderer.invoke('account:logout'),
+  pushConfig: () => ipcRenderer.invoke('account:push'),
+  pullConfig: () => ipcRenderer.invoke('account:pull'),
   onMeta: (cb) => {
     const listener = (_: unknown, meta: unknown) => cb(meta);
     ipcRenderer.on('parent:meta', listener);

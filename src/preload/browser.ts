@@ -13,6 +13,15 @@ contextBridge.exposeInMainWorld('youthBrowser', {
   toggleBookmark: () => ipcRenderer.invoke('bookmarks:toggleCurrent'),
   removeBookmark: (id: string) => ipcRenderer.invoke('bookmarks:remove', id),
   openBookmark: (id: string) => ipcRenderer.invoke('bookmarks:open', id),
+  getBookmarkChildren: (folderId: string) =>
+    ipcRenderer.invoke('bookmarks:children', folderId),
+  openBookmarksManager: () => ipcRenderer.invoke('bookmarks:openManager'),
+  popupBookmarkFolder: (folderId: string, x: number, y: number) =>
+    ipcRenderer.invoke('bookmarks:popupFolder', folderId, x, y),
+  addBookmark: (input: { title: string; url: string; parentId?: string }) =>
+    ipcRenderer.invoke('bookmarks:add', input),
+  moveBookmark: (id: string, parentId: string) =>
+    ipcRenderer.invoke('bookmarks:move', id, parentId),
   onState: (cb: (state: unknown) => void) => {
     const listener = (_: unknown, state: unknown) => cb(state);
     ipcRenderer.on('shell:state', listener);

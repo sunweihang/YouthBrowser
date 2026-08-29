@@ -14,6 +14,7 @@ await esbuild.build({
     join(root, 'src/main/index.ts'),
     join(root, 'src/preload/browser.ts'),
     join(root, 'src/preload/parent.ts'),
+    join(root, 'src/preload/bookmarks.ts'),
   ],
   outdir: dist,
   outbase: join(root, 'src'),

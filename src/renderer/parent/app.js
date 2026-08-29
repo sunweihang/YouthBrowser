@@ -32,6 +32,7 @@ function goPage(pageId) {
     page.classList.toggle('active', page.dataset.page === pageId);
   });
   if (pageId === 'groups') showGroupsList();
+  if (pageId === 'sync') refreshAccountPanel();
 }
 
 function extLabel(id) {
@@ -405,6 +406,150 @@ document.getElementById('changePassBtn').addEventListener('click', async () => {
   document.getElementById('curPass').value = '';
   document.getElementById('newPass').value = '';
   document.getElementById('newPass2').value = '';
+});
+
+function formatSyncTime(ts) {
+  if (!ts) return '';
+  try {
+    return new Date(ts).toLocaleString();
+  } catch {
+    return '';
+  }
+}
+
+function showAuthMode(mode) {
+  document.getElementById('loginCard').classList.toggle('hidden', mode !== 'login');
+  document.getElementById('registerCard').classList.toggle('hidden', mode !== 'register');
+  document.getElementById('loginError').textContent = '';
+  document.getElementById('registerError').textContent = '';
+}
+
+async function refreshAccountPanel(opts = {}) {
+  const keepMessage = Boolean(opts.keepMessage);
+  const account = await api.getAccount();
+  const out = document.getElementById('accountLoggedOut');
+  const inn = document.getElementById('accountLoggedIn');
+  if (!keepMessage) {
+    document.getElementById('syncError').textContent = '';
+    document.getElementById('syncOk').textContent = '';
+  }
+  if (!account) return;
+  if (account.loggedIn) {
+    out.classList.add('hidden');
+    inn.classList.remove('hidden');
+    document.getElementById('accountName').textContent = account.username;
+    document.getElementById('localRev').textContent = `v${account.lastRevision || 0}`;
+    document.getElementById('serverRev').textContent = '…';
+    document.getElementById('syncStatusLine').textContent = '正在检查服务器版本…';
+    const t = formatSyncTime(account.lastSyncAt);
+    document.getElementById('accountSyncMeta').textContent = t
+      ? `上次同步：${t}`
+      : '尚未同步过';
+
+    const status = await api.getSyncStatus();
+    if (!status || !status.ok) {
+      document.getElementById('serverRev').textContent = '获取失败';
+      document.getElementById('syncStatusLine').textContent =
+        status?.error || '无法连接服务器';
+      return;
+    }
+    document.getElementById('localRev').textContent = `v${status.localRevision || 0}`;
+    document.getElementById('serverRev').textContent = `v${status.serverRevision || 0}`;
+    document.getElementById('syncStatusLine').textContent =
+      status.status || '本地已是最新配置';
+  } else {
+    out.classList.remove('hidden');
+    inn.classList.add('hidden');
+    showAuthMode('login');
+  }
+}
+
+document.getElementById('gotoRegisterBtn').addEventListener('click', () => {
+  showAuthMode('register');
+});
+
+document.getElementById('gotoLoginBtn').addEventListener('click', () => {
+  showAuthMode('login');
+});
+
+document.getElementById('loginForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const err = document.getElementById('loginError');
+  err.textContent = '';
+  const res = await api.loginAccount({
+    username: document.getElementById('loginUser').value.trim(),
+    password: document.getElementById('loginPass').value,
+  });
+  if (!res.ok) {
+    err.textContent = res.error || '登录失败';
+    return;
+  }
+  document.getElementById('loginPass').value = '';
+  await refreshAccountPanel();
+});
+
+document.getElementById('registerForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const err = document.getElementById('registerError');
+  const pass = document.getElementById('registerPass').value;
+  const pass2 = document.getElementById('registerPass2').value;
+  err.textContent = '';
+  if (pass.length < 6) {
+    err.textContent = '密码至少 6 位';
+    return;
+  }
+  if (pass !== pass2) {
+    err.textContent = '两次密码不一致';
+    return;
+  }
+  const res = await api.registerAccount({
+    username: document.getElementById('registerUser').value.trim(),
+    password: pass,
+  });
+  if (!res.ok) {
+    err.textContent = res.error || '注册失败';
+    return;
+  }
+  document.getElementById('registerPass').value = '';
+  document.getElementById('registerPass2').value = '';
+  await refreshAccountPanel();
+});
+
+document.getElementById('logoutBtn').addEventListener('click', async () => {
+  await api.logoutAccount();
+  await refreshAccountPanel();
+});
+
+document.getElementById('pushBtn').addEventListener('click', async () => {
+  const err = document.getElementById('syncError');
+  const ok = document.getElementById('syncOk');
+  err.textContent = '';
+  ok.textContent = '';
+  const res = await api.pushConfig();
+  if (!res.ok) {
+    err.textContent = res.error || '上传失败';
+    await refreshAccountPanel({ keepMessage: true });
+    return;
+  }
+  ok.textContent = res.unchanged ? '云端已是最新配置' : '已上传';
+  if (res.rules) applyRules(res.rules);
+  await refreshAccountPanel({ keepMessage: true });
+});
+
+document.getElementById('pullBtn').addEventListener('click', async () => {
+  const err = document.getElementById('syncError');
+  const ok = document.getElementById('syncOk');
+  err.textContent = '';
+  ok.textContent = '';
+  const res = await api.pullConfig();
+  if (!res.ok) {
+    err.textContent = res.error || '拉取失败';
+    await refreshAccountPanel({ keepMessage: true });
+    return;
+  }
+  ok.textContent = res.unchanged ? '本地已是最新配置' : '已拉取并更新';
+  if (res.rules) applyRules(res.rules);
+  await refreshAccountPanel({ keepMessage: true });
 });
 
 api.onMeta((meta) => {

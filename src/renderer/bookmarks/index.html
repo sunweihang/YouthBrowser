@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>管理书签</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <div class="brand">简行浏览器</div>
+      <h1>管理书签</h1>
+    </div>
+    <div class="actions">
+      <button type="button" id="btnNewFolder">新建文件夹</button>
+      <button type="button" id="btnRename">重命名</button>
+      <button type="button" id="btnMove">移动到…</button>
+      <button type="button" class="danger" id="btnDelete">删除</button>
+    </div>
+  </header>
+  <div class="layout">
+    <aside class="tree-pane">
+      <div class="pane-title">文件夹</div>
+      <div id="folderTree" class="tree"></div>
+    </aside>
+    <main class="list-pane">
+      <div class="pane-title" id="listTitle">内容</div>
+      <div id="itemList" class="item-list"></div>
+      <p id="emptyHint" class="empty hidden">此文件夹为空。可把网址或书签拖到左侧文件夹，也可在浏览时点☆收藏后再拖过来。</p>
+    </main>
+  </div>
+  <p id="status" class="status"></p>
+
+  <div id="dialogMask" class="dialog-mask hidden">
+    <div class="dialog" role="dialog" aria-modal="true">
+      <h2 id="dialogTitle">标题</h2>
+      <p id="dialogMessage" class="dialog-msg hidden"></p>
+      <label id="dialogFieldWrap" class="dialog-field">
+        <span id="dialogLabel">名称</span>
+        <input id="dialogInput" type="text" autocomplete="off" spellcheck="false" />
+      </label>
+      <div id="dialogSelectWrap" class="dialog-field hidden">
+        <span id="dialogSelectLabel">目标文件夹</span>
+        <select id="dialogSelect"></select>
+      </div>
+      <div class="dialog-actions">
+        <button type="button" id="dialogCancel">取消</button>
+        <button type="button" class="primary" id="dialogOk">确定</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

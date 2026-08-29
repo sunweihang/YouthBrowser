@@ -250,3 +250,81 @@ body {
   font-size: 12px;
   color: var(--muted);
 }
+
+.manage-btn {
+  flex-shrink: 0;
+  height: 26px;
+  min-width: auto;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.bookmark-chip.folder {
+  border-style: dashed;
+}
+
+.bookmark-chip .folder-caret {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.bookmark-chip.drop-hover,
+.bookmarks.drop-hover,
+.bookmarks-items.drop-hover {
+  outline: 1px dashed var(--accent);
+  background: rgba(61, 139, 253, 0.12);
+}
+
+#urlInput[draggable="true"] {
+  cursor: grab;
+}
+
+.folder-menu {
+  position: fixed;
+  z-index: 50;
+  min-width: 180px;
+  max-width: 280px;
+  max-height: 320px;
+  overflow: auto;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg-2);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
+}
+
+.folder-menu.hidden {
+  display: none;
+}
+
+.folder-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 30px;
+  padding: 4px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  font-size: 12px;
+}
+
+.folder-menu-item:hover {
+  background: rgba(61, 139, 253, 0.16);
+}
+
+.folder-menu-item .label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.folder-menu-empty {
+  padding: 10px;
+  font-size: 12px;
+  color: var(--muted);
+}

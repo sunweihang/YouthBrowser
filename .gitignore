@@ -4,3 +4,8 @@ release/
 *.log
 .DS_Store
 Thumbs.db
+简行浏览器安装包.exe
+JianXingBrowser-Setup-*.exe
+*.exe.blockmap
+.env
+.env.*

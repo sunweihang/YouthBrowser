@@ -38,6 +38,7 @@
       <nav class="nav-list" aria-label="设置分类">
         <button type="button" class="nav-item active" data-page="overview">概览</button>
         <button type="button" class="nav-item" data-page="groups">配置组</button>
+        <button type="button" class="nav-item" data-page="sync">账号与同步</button>
         <button type="button" class="nav-item" data-page="security">账号安全</button>
       </nav>
       <p class="nav-foot" id="navSummary">—</p>
@@ -167,6 +168,74 @@
           </form>
         </div>
       </div>
+
+      <section class="page" id="page-sync" data-page="sync">
+        <header class="page-head">
+          <h2>账号与同步</h2>
+        </header>
+
+        <div id="accountLoggedOut">
+          <div class="card" id="loginCard">
+            <h3>登录</h3>
+            <form id="loginForm" class="stack-form">
+              <label>用户名
+                <input id="loginUser" type="text" autocomplete="username" />
+              </label>
+              <label>密码
+                <input id="loginPass" type="password" autocomplete="current-password" />
+              </label>
+              <p class="error" id="loginError"></p>
+              <div class="row-actions">
+                <button type="submit" class="primary">登录</button>
+                <button type="button" class="link-btn" id="gotoRegisterBtn">没有账号？去注册</button>
+              </div>
+            </form>
+          </div>
+
+          <div class="card hidden" id="registerCard">
+            <h3>注册</h3>
+            <form id="registerForm" class="stack-form">
+              <label>用户名
+                <input id="registerUser" type="text" autocomplete="username" />
+              </label>
+              <label>密码
+                <input id="registerPass" type="password" autocomplete="new-password" />
+              </label>
+              <label>确认密码
+                <input id="registerPass2" type="password" autocomplete="new-password" />
+              </label>
+              <p class="error" id="registerError"></p>
+              <div class="row-actions">
+                <button type="submit" class="primary">注册</button>
+                <button type="button" class="link-btn" id="gotoLoginBtn">已有账号？去登录</button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <div class="card hidden" id="accountLoggedIn">
+          <h3 id="accountName">—</h3>
+          <div class="sync-versions" id="syncVersions">
+            <div class="sync-row">
+              <span>本地版本</span>
+              <strong id="localRev">—</strong>
+            </div>
+            <div class="sync-row">
+              <span>服务器版本</span>
+              <strong id="serverRev">—</strong>
+            </div>
+            <p class="sync-status-line" id="syncStatusLine">正在检查…</p>
+            <p class="help" id="accountSyncMeta"></p>
+          </div>
+          <div class="row-actions" style="margin-top:14px">
+            <button type="button" class="primary" id="pushBtn">上传</button>
+            <button type="button" class="primary" id="pullBtn">拉取</button>
+            <button type="button" id="logoutBtn">退出</button>
+          </div>
+          <p class="error" id="syncError"></p>
+          <p class="ok" id="syncOk"></p>
+        </div>
+      </section>
 
       <section class="page" id="page-security" data-page="security">
         <header class="page-head">

@@ -3,11 +3,16 @@ import {
   BrowserView,
   BrowserWindow,
   ipcMain,
+  Menu,
   session,
 } from 'electron';
+import type { MenuItemConstructorOptions } from 'electron';
 import { join } from 'path';
 import { pathToFileURL } from 'url';
 import { BookmarksStore } from './bookmarks-store';
+import { AccountStore } from './account-store';
+import { groupsPayloadEqual, SyncClient } from './sync-client';
+import { startAutoUpdater } from './auto-update';
 import {
   buildBlockUrl,
   canNavigate,
@@ -31,8 +36,11 @@ interface TabState {
 
 let mainWindow: BrowserWindow | null = null;
 let parentWindow: BrowserWindow | null = null;
+let bookmarksWindow: BrowserWindow | null = null;
 let rulesStore: RulesStore;
 let bookmarksStore: BookmarksStore;
+let accountStore: AccountStore;
+let syncClient: SyncClient;
 let tabs: TabState[] = [];
 let activeTabId: string | null = null;
 let parentUnlocked = false;
@@ -47,6 +55,15 @@ function rendererFile(...parts: string[]): string {
 
 function blockPageUrl(): string {
   return rendererFile('block', 'index.html');
+}
+
+function notifyBookmarks(): void {
+  if (bookmarksWindow && !bookmarksWindow.isDestroyed()) {
+    bookmarksWindow.webContents.send(
+      'bookmarks:changed',
+      bookmarksStore.snapshot()
+    );
+  }
 }
 
 function notifyShell(channel: string, payload: unknown): void {
@@ -78,12 +95,12 @@ function tabSnapshot() {
           canGoBack: active.canGoBack,
           canGoForward: active.canGoForward,
           loading: active.loading,
-          isBookmarked:
+            isBookmarked:
             isHttpUrl(activeUrl) &&
             Boolean(bookmarksStore.findByUrl(activeUrl)),
         }
       : null,
-    bookmarks: bookmarksStore.list(),
+    bookmarks: bookmarksStore.snapshot(),
     needsParentSetup: !rulesStore.hasPassword(),
   };
 }
@@ -376,6 +393,80 @@ function openParentWindow(forceSetup = false): void {
   });
 }
 
+function openBookmarksManager(): void {
+  if (bookmarksWindow && !bookmarksWindow.isDestroyed()) {
+    bookmarksWindow.focus();
+    bookmarksWindow.webContents.send(
+      'bookmarks:changed',
+      bookmarksStore.snapshot()
+    );
+    return;
+  }
+
+  bookmarksWindow = new BrowserWindow({
+    width: 920,
+    height: 620,
+    minWidth: 720,
+    minHeight: 480,
+    parent: mainWindow ?? undefined,
+    modal: false,
+    title: `${APP_NAME} · 管理书签`,
+    webPreferences: {
+      preload: distPath('preload', 'bookmarks.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  bookmarksWindow.setMenuBarVisibility(false);
+  void bookmarksWindow.loadURL(rendererFile('bookmarks', 'index.html'));
+  bookmarksWindow.on('closed', () => {
+    bookmarksWindow = null;
+  });
+}
+
+async function openBookmarkById(id: string): Promise<{ ok: boolean; error?: string }> {
+  const bm = bookmarksStore.get(id);
+  if (!bm || bm.type !== 'bookmark' || !bm.url) {
+    return { ok: false, error: '收藏不存在' };
+  }
+  const tab = tabs.find((t) => t.id === activeTabId);
+  if (tab) await guardedLoad(tab, bm.url);
+  else createTab(bm.url);
+  return { ok: true };
+}
+
+function buildBookmarkMenuTemplate(folderId: string): MenuItemConstructorOptions[] {
+  const kids = bookmarksStore.getChildren(folderId);
+  if (!kids.length) {
+    return [{ label: '（空文件夹）', enabled: false }];
+  }
+  return kids.map((item) => {
+    if (item.type === 'folder') {
+      return {
+        label: item.title || '文件夹',
+        submenu: buildBookmarkMenuTemplate(item.id),
+      };
+    }
+    return {
+      label: item.title || item.url || '书签',
+      click: () => {
+        void openBookmarkById(item.id);
+      },
+    };
+  });
+}
+
+function popupBookmarkFolder(folderId: string, x: number, y: number): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const menu = Menu.buildFromTemplate(buildBookmarkMenuTemplate(folderId));
+  menu.popup({
+    window: mainWindow,
+    x: Math.round(x),
+    y: Math.round(y),
+  });
+}
+
 function registerIpc(): void {
   ipcMain.handle('shell:getState', () => tabSnapshot());
 
@@ -417,47 +508,81 @@ function registerIpc(): void {
     openParentWindow(!rulesStore.hasPassword());
   });
 
-  ipcMain.handle('bookmarks:list', () => bookmarksStore.list());
-
-  ipcMain.handle('bookmarks:addCurrent', () => {
-    const tab = tabs.find((t) => t.id === activeTabId);
-    if (!tab || !isHttpUrl(tab.url)) {
-      return { ok: false, error: '当前页无法收藏' };
-    }
-    const result = bookmarksStore.add({
-      title: tab.title || tab.url,
-      url: tab.url,
-    });
-    notifyShell('shell:state', tabSnapshot());
-    return result;
-  });
+  ipcMain.handle('bookmarks:snapshot', () => bookmarksStore.snapshot());
 
   ipcMain.handle('bookmarks:toggleCurrent', () => {
     const tab = tabs.find((t) => t.id === activeTabId);
     if (!tab || !isHttpUrl(tab.url)) {
       return { ok: false, error: '当前页无法收藏' };
     }
-    const existing = bookmarksStore.findByUrl(tab.url);
-    const result = existing
-      ? bookmarksStore.remove(existing.id)
-      : bookmarksStore.add({ title: tab.title || tab.url, url: tab.url });
+    const result = bookmarksStore.toggleUrl(tab.title || tab.url, tab.url);
     notifyShell('shell:state', tabSnapshot());
+    notifyBookmarks();
     return result;
+  });
+
+  ipcMain.handle(
+    'bookmarks:add',
+    (
+      _e,
+      input: { title: string; url: string; parentId?: string }
+    ) => {
+      const result = bookmarksStore.addBookmark(input || { title: '', url: '' });
+      notifyShell('shell:state', tabSnapshot());
+      notifyBookmarks();
+      return { ...result, snapshot: bookmarksStore.snapshot() };
+    }
+  );
+
+  ipcMain.handle(
+    'bookmarks:createFolder',
+    (_e, input: { title: string; parentId?: string }) => {
+      const result = bookmarksStore.createFolder(input || { title: '' });
+      notifyShell('shell:state', tabSnapshot());
+      notifyBookmarks();
+      return { ...result, snapshot: bookmarksStore.snapshot() };
+    }
+  );
+
+  ipcMain.handle('bookmarks:rename', (_e, id: string, title: string) => {
+    const result = bookmarksStore.rename(id, title);
+    notifyShell('shell:state', tabSnapshot());
+    notifyBookmarks();
+    return { ...result, snapshot: bookmarksStore.snapshot() };
+  });
+
+  ipcMain.handle('bookmarks:move', (_e, id: string, parentId: string) => {
+    const result = bookmarksStore.move(id, parentId);
+    notifyShell('shell:state', tabSnapshot());
+    notifyBookmarks();
+    return { ...result, snapshot: bookmarksStore.snapshot() };
   });
 
   ipcMain.handle('bookmarks:remove', (_e, id: string) => {
     const result = bookmarksStore.remove(id);
     notifyShell('shell:state', tabSnapshot());
-    return result;
+    notifyBookmarks();
+    return { ...result, snapshot: bookmarksStore.snapshot() };
+  });
+
+  ipcMain.handle('bookmarks:children', (_e, folderId: string) => {
+    return bookmarksStore.getChildren(folderId || 'toolbar');
   });
 
   ipcMain.handle('bookmarks:open', async (_e, id: string) => {
-    const bm = bookmarksStore.list().find((b) => b.id === id);
-    if (!bm) return { ok: false, error: '收藏不存在' };
-    const tab = tabs.find((t) => t.id === activeTabId);
-    if (tab) await guardedLoad(tab, bm.url);
-    else createTab(bm.url);
-    return { ok: true };
+    return openBookmarkById(id);
+  });
+
+  ipcMain.handle(
+    'bookmarks:popupFolder',
+    (_e, folderId: string, x: number, y: number) => {
+      popupBookmarkFolder(folderId, Number(x) || 0, Number(y) || 0);
+      return { ok: true };
+    }
+  );
+
+  ipcMain.handle('bookmarks:openManager', () => {
+    openBookmarksManager();
   });
 
   // Parent IPC
@@ -550,11 +675,169 @@ function registerIpc(): void {
     if (!parentUnlocked) return { ok: false, error: '未解锁' };
     return rulesStore.removeBiliUp(groupId, mid);
   });
+
+  ipcMain.handle('account:get', () => {
+    if (!parentUnlocked) return null;
+    return accountStore.getPublic();
+  });
+
+  ipcMain.handle('account:syncStatus', async () => {
+    if (!parentUnlocked) return { ok: false, error: '未解锁' };
+    if (!accountStore.isLoggedIn()) {
+      return { ok: false, error: '请先登录账号' };
+    }
+    const account = accountStore.getPublic();
+    const localRevision = account.lastRevision || 0;
+    const localGroups = rulesStore.exportGroups();
+    const remote = await syncClient.pull({ touch: false });
+    if (!remote.ok) {
+      return {
+        ok: false,
+        error: remote.error || '无法读取服务器版本',
+        localRevision,
+        serverRevision: null,
+        contentEqual: false,
+        lastSyncAt: account.lastSyncAt || 0,
+      };
+    }
+    const serverRevision = remote.revision || 0;
+    const contentEqual = groupsPayloadEqual(localGroups, remote.groups || []);
+    let status = '本地已是最新配置';
+    if (!contentEqual) {
+      if (serverRevision > localRevision) {
+        status = '服务器有新版本，请拉取';
+      } else {
+        status = '本地有未上传更改，请上传';
+      }
+    }
+    return {
+      ok: true,
+      localRevision,
+      serverRevision,
+      contentEqual,
+      status,
+      lastSyncAt: account.lastSyncAt || 0,
+      serverUpdatedAt: remote.updatedAt || 0,
+    };
+  });
+
+  ipcMain.handle(
+    'account:register',
+    async (
+      _e,
+      input: { username: string; password: string; serverUrl?: string }
+    ) => {
+      if (!parentUnlocked) return { ok: false, error: '未解锁' };
+      try {
+        return await syncClient.register(
+          input.username,
+          input.password,
+          input.serverUrl
+        );
+      } catch (e) {
+        return {
+          ok: false,
+          error: e instanceof Error ? e.message : '注册失败',
+        };
+      }
+    }
+  );
+
+  ipcMain.handle(
+    'account:login',
+    async (
+      _e,
+      input: { username: string; password: string; serverUrl?: string }
+    ) => {
+      if (!parentUnlocked) return { ok: false, error: '未解锁' };
+      try {
+        return await syncClient.login(
+          input.username,
+          input.password,
+          input.serverUrl
+        );
+      } catch (e) {
+        return {
+          ok: false,
+          error: e instanceof Error ? e.message : '登录失败',
+        };
+      }
+    }
+  );
+
+  ipcMain.handle('account:logout', async () => {
+    if (!parentUnlocked) return { ok: false, error: '未解锁' };
+    await syncClient.logout();
+    return { ok: true, account: accountStore.getPublic() };
+  });
+
+  ipcMain.handle('account:push', async () => {
+    if (!parentUnlocked) return { ok: false, error: '未解锁' };
+    if (!accountStore.isLoggedIn()) {
+      return { ok: false, error: '请先登录账号' };
+    }
+    const localGroups = rulesStore.exportGroups();
+    const remote = await syncClient.pull({ touch: false });
+    if (!remote.ok) {
+      return { ok: false, error: remote.error || '无法读取云端配置' };
+    }
+    if (groupsPayloadEqual(localGroups, remote.groups || [])) {
+      return {
+        ok: true,
+        unchanged: true,
+        revision: remote.revision,
+        updatedAt: remote.updatedAt,
+        account: accountStore.getPublic(),
+        rules: rulesStore.getPublic(),
+      };
+    }
+    const result = await syncClient.push(localGroups);
+    return {
+      ...result,
+      unchanged: false,
+      account: accountStore.getPublic(),
+      rules: rulesStore.getPublic(),
+    };
+  });
+
+  ipcMain.handle('account:pull', async () => {
+    if (!parentUnlocked) return { ok: false, error: '未解锁' };
+    if (!accountStore.isLoggedIn()) {
+      return { ok: false, error: '请先登录账号' };
+    }
+    const localGroups = rulesStore.exportGroups();
+    const pulled = await syncClient.pull();
+    if (!pulled.ok || !pulled.groups) {
+      return { ok: false, error: pulled.error || '拉取失败' };
+    }
+    if (groupsPayloadEqual(localGroups, pulled.groups)) {
+      return {
+        ok: true,
+        unchanged: true,
+        revision: pulled.revision,
+        updatedAt: pulled.updatedAt,
+        account: accountStore.getPublic(),
+        rules: rulesStore.getPublic(),
+      };
+    }
+    const applied = rulesStore.replaceGroups(pulled.groups);
+    return {
+      ok: applied.ok,
+      error: applied.error,
+      unchanged: false,
+      revision: pulled.revision,
+      updatedAt: pulled.updatedAt,
+      account: accountStore.getPublic(),
+      rules: rulesStore.getPublic(),
+    };
+  });
 }
 
 app.whenReady().then(() => {
   rulesStore = new RulesStore();
   bookmarksStore = new BookmarksStore();
+  accountStore = new AccountStore();
+  syncClient = new SyncClient(accountStore);
   registerIpc();
 
   // Block permission prompts that could be abused
@@ -563,6 +846,7 @@ app.whenReady().then(() => {
   });
 
   createMainWindow();
+  startAutoUpdater(() => mainWindow);
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow();

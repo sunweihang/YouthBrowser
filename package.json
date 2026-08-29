@@ -1,6 +1,6 @@
 {
   "name": "jianxing-browser",
-  "version": "1.0.0",
+  "version": "1.1.4",
   "description": "简行浏览器：青少年专用，配置组白名单 + 站点扩展（含 B 站 UP）+ 收藏夹",
   "main": "dist/main/index.js",
   "author": "简行浏览器",
@@ -10,41 +10,71 @@
     "start": "npm run build && electron .",
     "dev": "npm run build && electron .",
     "pack": "npm run build && electron-builder --dir",
-    "dist": "npm run build && electron-builder",
+    "dist": "npm run build && electron-builder --publish never",
+    "publish:update": "node scripts/publish-update.mjs",
+    "release": "npm run dist && npm run publish:update",
     "smoke": "node scripts/smoke-nav.mjs"
   },
   "build": {
     "appId": "com.jianxing.browser",
     "productName": "简行浏览器",
     "directories": {
-      "output": "release"
+      "output": "release",
+      "buildResources": "build"
     },
     "files": [
       "dist/**/*",
       "package.json"
     ],
+    "extraFiles": [
+      {
+        "from": "build/icon.ico",
+        "to": "app.ico"
+      }
+    ],
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "http://182.92.120.159/downloads/jianxing/"
+      }
+    ],
     "win": {
-      "target": ["nsis"],
-      "executableName": "JianXingBrowser"
+      "target": [
+        "nsis"
+      ],
+      "executableName": "JianXingBrowser",
+      "icon": "build/icon.ico"
     },
     "mac": {
-      "target": ["dmg"],
-      "category": "public.app-category.education"
+      "target": [
+        "dmg"
+      ],
+      "category": "public.app-category.education",
+      "icon": "build/icon.png"
     },
     "linux": {
-      "target": ["AppImage"],
-      "category": "Network"
+      "target": [
+        "AppImage"
+      ],
+      "category": "Network",
+      "icon": "build/icon.png"
     },
     "nsis": {
       "shortcutName": "简行浏览器",
-      "artifactName": "简行浏览器 Setup ${version}.${ext}"
+      "artifactName": "JianXingBrowser-Setup-${version}.${ext}",
+      "oneClick": true,
+      "allowToChangeInstallationDirectory": false
     }
+  },
+  "dependencies": {
+    "electron-updater": "^6.6.2"
   },
   "devDependencies": {
     "@types/node": "^22.13.10",
     "electron": "^34.3.0",
     "electron-builder": "^25.1.8",
     "esbuild": "^0.25.1",
+    "ssh2": "^1.17.0",
     "typescript": "^5.8.2"
   }
 }

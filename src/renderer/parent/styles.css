@@ -240,13 +240,18 @@ code {
 
 .link-btn {
   height: auto;
-  padding: 0;
+  padding: 0 4px;
   border: none;
   background: transparent;
   color: var(--accent);
   font-size: 13px;
   cursor: pointer;
 }
+
+.link-btn:hover {
+  text-decoration: underline;
+}
+
 
 .tip-card h3 {
   margin-bottom: 8px;
@@ -388,8 +393,43 @@ button.danger {
 .ok {
   color: var(--ok);
   min-height: 1.2em;
-  font-size: 13px;
-  margin: 6px 0;
+  font-size: 14px;
+  font-weight: 600;
+  margin: 10px 0 0;
+}
+
+.sync-versions {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.sync-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.sync-row strong {
+  color: var(--text);
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+.sync-status-line {
+  margin: 10px 0 4px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent);
 }
 
 select {
