@@ -3,8 +3,10 @@ package com.jianxing.browser
 import android.app.Application
 import com.jianxing.browser.data.AccountStore
 import com.jianxing.browser.data.BookmarksStore
+import com.jianxing.browser.data.DownloadsStore
 import com.jianxing.browser.data.HistoryStore
 import com.jianxing.browser.data.RulesStore
+import com.jianxing.browser.data.SettingsStore
 import com.jianxing.browser.data.SitePasswordsStore
 import com.jianxing.browser.data.WatchRequestsStore
 
@@ -19,7 +21,11 @@ class JianXingApp : Application() {
         private set
     lateinit var historyStore: HistoryStore
         private set
+    lateinit var downloadsStore: DownloadsStore
+        private set
     lateinit var sitePasswordsStore: SitePasswordsStore
+        private set
+    lateinit var settingsStore: SettingsStore
         private set
 
     override fun onCreate() {
@@ -30,7 +36,9 @@ class JianXingApp : Application() {
         accountStore = AccountStore(this)
         bookmarksStore = BookmarksStore(this)
         historyStore = HistoryStore(this)
+        downloadsStore = DownloadsStore(this)
         sitePasswordsStore = SitePasswordsStore(this)
+        settingsStore = SettingsStore(this)
         rulesStore.ensureDefaultRequestGroup()
     }
 

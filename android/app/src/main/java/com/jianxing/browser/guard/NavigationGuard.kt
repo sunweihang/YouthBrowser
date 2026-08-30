@@ -189,6 +189,25 @@ object NavigationGuard {
         return deny(BlockReason.BILI_PATH_DENIED, "B 站该域名路径未授权")
     }
 
+    fun isDownloadAllowed(rawUrl: String, rules: RulesConfig): Boolean {
+        val href = rawUrl.trim()
+        if (href.isEmpty()) return false
+        if (href.startsWith("blob:") || href.startsWith("data:")) return true
+        val url = try {
+            URI(href)
+        } catch (_: Exception) {
+            return false
+        }
+        val protocol = url.scheme?.lowercase()
+        if (protocol != "http" && protocol != "https") return false
+        if (!rules.filteringEnabled) return true
+        val host = normalizeHost(url.host ?: "")
+        if (host.isEmpty()) return false
+        if (isBiliSearchHost(host) && hasEnabledBiliExtension(rules)) return true
+        if (isBiliStaticOrApi(host) && hasEnabledBiliExtension(rules)) return true
+        return matchingGroups(host, rules).isNotEmpty()
+    }
+
     fun canNavigate(rawUrl: String, rules: RulesConfig): NavigateResult {
         var urlString = rawUrl.trim()
         if (urlString.isEmpty()) return deny(BlockReason.INVALID_URL, "地址为空")

@@ -306,6 +306,13 @@
                 android:text="@string/nav_requests" />
 
             <com.google.android.material.chip.Chip
+                android:id="@+id/chipHistory"
+                style="@style/Widget.MaterialComponents.Chip.Choice"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/nav_history" />
+
+            <com.google.android.material.chip.Chip
                 android:id="@+id/chipSync"
                 style="@style/Widget.MaterialComponents.Chip.Choice"
                 android:layout_width="wrap_content"
@@ -356,22 +363,120 @@
                         android:textColor="@color/jx_text"
                         android:textStyle="bold" />
 
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:layout_marginTop="12dp">
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical"
+                            android:padding="8dp">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="@string/stat_groups"
+                                android:textColor="@color/jx_muted"
+                                android:textSize="12sp" />
+
+                            <TextView
+                                android:id="@+id/statGroups"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="0"
+                                android:textColor="@color/jx_text"
+                                android:textSize="22sp"
+                                android:textStyle="bold" />
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btnGotoGroups"
+                                style="@style/Widget.MaterialComponents.Button.TextButton"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="@string/goto_manage"
+                                android:textColor="@color/jx_accent"
+                                android:minWidth="0dp" />
+                        </LinearLayout>
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical"
+                            android:padding="8dp">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="@string/stat_enabled"
+                                android:textColor="@color/jx_muted"
+                                android:textSize="12sp" />
+
+                            <TextView
+                                android:id="@+id/statEnabled"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="0"
+                                android:textColor="@color/jx_text"
+                                android:textSize="22sp"
+                                android:textStyle="bold" />
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btnGotoGroupsEnabled"
+                                style="@style/Widget.MaterialComponents.Button.TextButton"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="@string/goto_view"
+                                android:textColor="@color/jx_accent"
+                                android:minWidth="0dp" />
+                        </LinearLayout>
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical"
+                            android:padding="8dp">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="@string/stat_history"
+                                android:textColor="@color/jx_muted"
+                                android:textSize="12sp" />
+
+                            <TextView
+                                android:id="@+id/statHistory"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="0"
+                                android:textColor="@color/jx_text"
+                                android:textSize="22sp"
+                                android:textStyle="bold" />
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btnOpenHistory"
+                                style="@style/Widget.MaterialComponents.Button.TextButton"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="@string/goto_manage"
+                                android:textColor="@color/jx_accent"
+                                android:minWidth="0dp" />
+                        </LinearLayout>
+                    </LinearLayout>
+
                     <TextView
                         android:id="@+id/overviewSummary"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="12dp"
+                        android:layout_marginTop="8dp"
                         android:textColor="@color/jx_muted"
                         android:lineSpacingExtra="4dp"
-                        android:textSize="14sp" />
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btnOpenHistory"
-                        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="16dp"
-                        android:text="@string/menu_history" />
+                        android:textSize="13sp" />
                 </LinearLayout>
             </ScrollView>
 
@@ -464,6 +569,40 @@
                             android:textStyle="bold"
                             android:textSize="16sp"
                             android:textColor="@color/jx_text" />
+
+                        <TextView
+                            android:id="@+id/groupDetailSub"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:textColor="@color/jx_muted"
+                            android:textSize="12sp"
+                            android:paddingBottom="8dp" />
+
+                        <com.google.android.material.textfield.TextInputLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:hint="名称"
+                            style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox.Dense">
+
+                            <com.google.android.material.textfield.TextInputEditText
+                                android:id="@+id/detailName"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:maxLines="1" />
+                        </com.google.android.material.textfield.TextInputLayout>
+
+                        <Spinner
+                            android:id="@+id/detailExt"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnSaveGroupMeta"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp"
+                            android:text="保存" />
 
                         <com.google.android.material.switchmaterial.SwitchMaterial
                             android:id="@+id/groupEnabledSwitch"
@@ -637,6 +776,85 @@
                         android:padding="8dp" />
                 </LinearLayout>
             </ScrollView>
+
+            <!-- History (parent dashboard) -->
+            <LinearLayout
+                android:id="@+id/pageHistory"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:orientation="vertical"
+                android:visibility="gone"
+                android:padding="12dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/history_title"
+                        android:textColor="@color/jx_text"
+                        android:textSize="18sp"
+                        android:textStyle="bold" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnClearParentHistory"
+                        style="@style/Jx.FindBtn"
+                        android:layout_width="wrap_content"
+                        android:layout_height="32dp"
+                        android:text="@string/history_clear"
+                        android:textColor="@color/jx_danger" />
+                </LinearLayout>
+
+                <EditText
+                    android:id="@+id/parentHistorySearch"
+                    android:layout_width="match_parent"
+                    android:layout_height="34dp"
+                    android:layout_marginTop="8dp"
+                    android:background="@drawable/bg_find_input"
+                    android:paddingStart="12dp"
+                    android:paddingEnd="12dp"
+                    android:hint="@string/history_search"
+                    android:textColorHint="@color/jx_muted"
+                    android:textColor="@color/jx_text"
+                    android:textSize="13sp"
+                    android:inputType="text"
+                    android:maxLines="1"
+                    android:importantForAutofill="no" />
+
+                <TextView
+                    android:id="@+id/parentHistoryError"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/jx_danger"
+                    android:textSize="12sp" />
+
+                <TextView
+                    android:id="@+id/parentHistoryOk"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/jx_ok"
+                    android:textSize="12sp" />
+
+                <TextView
+                    android:id="@+id/parentHistoryEmpty"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/history_empty"
+                    android:textColor="@color/jx_muted"
+                    android:padding="12dp"
+                    android:visibility="gone" />
+
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/parentHistoryList"
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_weight="1"
+                    android:layout_marginTop="8dp" />
+            </LinearLayout>
 
             <!-- Sync -->
             <ScrollView

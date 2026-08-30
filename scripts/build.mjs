@@ -17,6 +17,7 @@ await esbuild.build({
     join(root, 'src/preload/bookmarks.ts'),
     join(root, 'src/preload/view.ts'),
     join(root, 'src/preload/history.ts'),
+    join(root, 'src/preload/downloads.ts'),
     join(root, 'src/preload/update.ts'),
     join(root, 'src/preload/passwords.ts'),
   ],

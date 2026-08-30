@@ -19,6 +19,7 @@ import com.jianxing.browser.data.RulesStore
 import com.jianxing.browser.databinding.ActivityParentBinding
 import com.jianxing.browser.model.BiliConstants
 import com.jianxing.browser.model.SiteGroup
+import com.jianxing.browser.model.HistoryEntry
 import com.jianxing.browser.model.WatchRequest
 import com.jianxing.browser.sync.SyncClient
 import java.util.concurrent.Executors
@@ -28,8 +29,16 @@ class ParentActivity : AppCompatActivity() {
     private val io = Executors.newSingleThreadExecutor()
     private var unlocked = false
     private var editingGroupId: String? = null
+    private lateinit var historyAdapter: ParentHistoryAdapter
 
-    private val groupsAdapter = GroupsAdapter { group -> openGroupDetail(group.id) }
+    private val groupsAdapter = GroupsAdapter(
+        onEdit = { group -> openGroupDetail(group.id) },
+        onToggle = { group, enabled ->
+            JianXingApp.instance.rulesStore.setEnabled(group.id, enabled)
+            refreshGroups()
+            refreshOverview()
+        }
+    )
 
     private val detailHostsAdapter = HostsAdapter { host ->
         val gid = editingGroupId ?: return@HostsAdapter
@@ -206,11 +215,52 @@ class ParentActivity : AppCompatActivity() {
         }
 
         binding.btnOpenHistory.setOnClickListener {
-            startActivity(
-                Intent(this, HistoryActivity::class.java)
-                    .putExtra(HistoryActivity.EXTRA_UNLOCKED, true)
-            )
+            binding.chipHistory.isChecked = true
+            showPage(R.id.chipHistory)
         }
+        binding.btnGotoGroups.setOnClickListener {
+            binding.chipGroups.isChecked = true
+            showPage(R.id.chipGroups)
+        }
+        binding.btnGotoGroupsEnabled.setOnClickListener {
+            binding.chipGroups.isChecked = true
+            showPage(R.id.chipGroups)
+        }
+        binding.parentHistoryList.layoutManager = LinearLayoutManager(this)
+        val historyAdapter = ParentHistoryAdapter(
+            onOpen = { entry ->
+                startActivity(
+                    Intent(this, MainActivity::class.java)
+                        .setData(android.net.Uri.parse(entry.url))
+                )
+            },
+            onDelete = { entry ->
+                JianXingApp.instance.historyStore.remove(entry.id)
+                binding.parentHistoryOk.text = "已删除"
+                refreshParentHistory()
+                refreshOverview()
+            }
+        )
+        binding.parentHistoryList.adapter = historyAdapter
+        this.historyAdapter = historyAdapter
+        binding.btnClearParentHistory.setOnClickListener {
+            AlertDialog.Builder(this)
+                .setTitle("清空全部")
+                .setMessage("确定清空全部浏览历史？此操作不可恢复。")
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(R.string.history_clear) { _, _ ->
+                    JianXingApp.instance.historyStore.clear()
+                    binding.parentHistoryOk.text = "已清空历史记录"
+                    refreshParentHistory()
+                    refreshOverview()
+                }
+                .show()
+        }
+        binding.parentHistorySearch.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) { refreshParentHistory() }
+        })
 
         binding.btnCreateGroup.setOnClickListener {
             val name = binding.newGroupName.text?.toString().orEmpty()
@@ -264,6 +314,20 @@ class ParentActivity : AppCompatActivity() {
             binding.detailMidInput.setText("")
             refreshGroupDetail()
             refreshGroups()
+        }
+
+        binding.btnSaveGroupMeta.setOnClickListener {
+            val gid = editingGroupId ?: return@setOnClickListener
+            val name = binding.detailName.text?.toString().orEmpty()
+            val ext = if (binding.detailExt.selectedItemPosition == 1) "bilibili" else "none"
+            if (!JianXingApp.instance.rulesStore.updateGroup(gid, name = name, extensionId = ext)) {
+                toast("保存失败")
+                return@setOnClickListener
+            }
+            toast("已保存")
+            refreshGroupDetail()
+            refreshGroups()
+            refreshOverview()
         }
 
         binding.btnDeleteGroup.setOnClickListener {
@@ -322,12 +386,14 @@ class ParentActivity : AppCompatActivity() {
         binding.pageOverview.isVisible = chipId == R.id.chipOverview
         binding.pageGroups.isVisible = chipId == R.id.chipGroups
         binding.pageRequests.isVisible = chipId == R.id.chipRequests
+        binding.pageHistory.isVisible = chipId == R.id.chipHistory
         binding.pageSync.isVisible = chipId == R.id.chipSync
         binding.pageSecurity.isVisible = chipId == R.id.chipSecurity
         when (chipId) {
             R.id.chipOverview -> refreshOverview()
             R.id.chipGroups -> refreshGroups()
             R.id.chipRequests -> refreshRequests()
+            R.id.chipHistory -> refreshParentHistory()
             R.id.chipSync -> updateSyncStatus()
         }
     }
@@ -336,9 +402,21 @@ class ParentActivity : AppCompatActivity() {
         refreshOverview()
         refreshGroups()
         refreshRequests()
+        refreshParentHistory()
         updateSyncStatus()
         showPage(R.id.chipOverview)
         binding.chipOverview.isChecked = true
+    }
+
+    private fun refreshParentHistory() {
+        if (!::historyAdapter.isInitialized) return
+        binding.parentHistoryError.text = ""
+        val q = binding.parentHistorySearch.text?.toString().orEmpty()
+        val items = JianXingApp.instance.historyStore.list(q)
+        historyAdapter.submit(HistoryActivity.groupByDay(items))
+        binding.parentHistoryEmpty.isVisible = items.isEmpty()
+        binding.parentHistoryList.isVisible = items.isNotEmpty()
+        binding.statHistory.text = JianXingApp.instance.historyStore.count().toString()
     }
 
     private fun refreshOverview() {
@@ -349,6 +427,9 @@ class ParentActivity : AppCompatActivity() {
         val enabled = rules.groups.count { it.enabled }
         val filtering = rules.filteringEnabled
         binding.filterEnabledSwitch.isChecked = filtering
+        binding.statGroups.text = rules.groups.size.toString()
+        binding.statEnabled.text = enabled.toString()
+        binding.statHistory.text = app.historyStore.count().toString()
         binding.overviewSummary.text = buildString {
             appendLine(if (filtering) "访问过滤：开" else "访问过滤：关")
             appendLine("配置组：${rules.groups.size}（启用 $enabled）")
@@ -388,6 +469,16 @@ class ParentActivity : AppCompatActivity() {
             return
         }
         binding.groupDetailTitle.text = g.name
+        binding.groupDetailSub.text = "扩展：${if (g.extensionId == "bilibili") "B 站" else "无（仅域名放行）"} · ${if (g.enabled) "已启用" else "已关闭"}"
+        binding.detailName.setText(g.name)
+        if (binding.detailExt.adapter == null) {
+            binding.detailExt.adapter = android.widget.ArrayAdapter(
+                this,
+                android.R.layout.simple_spinner_dropdown_item,
+                listOf("无（仅域名放行）", "B 站")
+            )
+        }
+        binding.detailExt.setSelection(if (g.extensionId == "bilibili") 1 else 0)
         binding.groupEnabledSwitch.setOnCheckedChangeListener(null)
         binding.groupEnabledSwitch.isChecked = g.enabled
         binding.groupEnabledSwitch.setOnCheckedChangeListener { _, checked ->
@@ -417,6 +508,11 @@ class ParentActivity : AppCompatActivity() {
         resolvedAdapter.submit(resolved)
         binding.requestsPendingEmpty.isVisible = pending.isEmpty()
         binding.requestsResolvedEmpty.isVisible = resolved.isEmpty()
+        binding.chipRequests.text = if (pending.isEmpty()) {
+            getString(R.string.nav_requests)
+        } else {
+            "${getString(R.string.nav_requests)} ${pending.size}"
+        }
     }
 
     private fun approveRequest(req: WatchRequest) {
@@ -629,7 +725,8 @@ class ParentActivity : AppCompatActivity() {
     // ── Adapters ──
 
     private class GroupsAdapter(
-        private val onEdit: (SiteGroup) -> Unit
+        private val onEdit: (SiteGroup) -> Unit,
+        private val onToggle: (SiteGroup, Boolean) -> Unit
     ) : RecyclerView.Adapter<GroupsAdapter.VH>() {
         private val items = mutableListOf<SiteGroup>()
 
@@ -656,6 +753,13 @@ class ParentActivity : AppCompatActivity() {
             }
             holder.preview.text = if (g.hosts.isEmpty()) "无域名"
             else g.hosts.take(4).joinToString(", ") + if (g.hosts.size > 4) "…" else ""
+            holder.enabled.setOnCheckedChangeListener(null)
+            holder.enabled.isChecked = g.enabled
+            holder.enabled.text = if (g.enabled) "开" else "关"
+            holder.enabled.setOnCheckedChangeListener { _, checked ->
+                holder.enabled.text = if (checked) "开" else "关"
+                onToggle(g, checked)
+            }
             holder.edit.setOnClickListener { onEdit(g) }
             holder.itemView.setOnClickListener { onEdit(g) }
         }
@@ -665,6 +769,8 @@ class ParentActivity : AppCompatActivity() {
             val meta: TextView = v.findViewById(R.id.groupMeta)
             val preview: TextView = v.findViewById(R.id.groupHostsPreview)
             val edit: MaterialButton = v.findViewById(R.id.btnEditGroup)
+            val enabled: com.google.android.material.switchmaterial.SwitchMaterial =
+                v.findViewById(R.id.groupEnabled)
         }
     }
 
@@ -757,6 +863,58 @@ class ParentActivity : AppCompatActivity() {
             val actions: View = v.findViewById(R.id.requestActions)
             val approve: MaterialButton = v.findViewById(R.id.btnApprove)
             val reject: MaterialButton = v.findViewById(R.id.btnReject)
+        }
+    }
+
+    class ParentHistoryAdapter(
+        private val onOpen: (HistoryEntry) -> Unit,
+        private val onDelete: (HistoryEntry) -> Unit
+    ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
+        private var rows: List<HistoryActivity.Row> = emptyList()
+
+        fun submit(list: List<HistoryActivity.Row>) {
+            rows = list
+            notifyDataSetChanged()
+        }
+
+        override fun getItemViewType(position: Int) =
+            if (rows[position] is HistoryActivity.Row.Day) 0 else 1
+
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
+            return if (viewType == 0) {
+                DayVH(LayoutInflater.from(parent.context).inflate(R.layout.item_day_label, parent, false))
+            } else {
+                ItemVH(LayoutInflater.from(parent.context).inflate(R.layout.item_history, parent, false))
+            }
+        }
+
+        override fun getItemCount() = rows.size
+
+        override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
+            when (val row = rows[position]) {
+                is HistoryActivity.Row.Day -> (holder as DayVH).label.text = row.label
+                is HistoryActivity.Row.Item -> {
+                    val h = holder as ItemVH
+                    val item = row.entry
+                    h.title.text = item.title.ifBlank { item.host.ifBlank { item.url } }
+                    h.url.text = item.host
+                    h.time.text = HistoryActivity.formatClock(item.visitedAt)
+                    h.delete.isVisible = true
+                    h.delete.setOnClickListener { onDelete(item) }
+                    h.itemView.setOnClickListener { onOpen(item) }
+                }
+            }
+        }
+
+        class DayVH(v: View) : RecyclerView.ViewHolder(v) {
+            val label: TextView = v.findViewById(R.id.dayLabel)
+        }
+
+        class ItemVH(v: View) : RecyclerView.ViewHolder(v) {
+            val title: TextView = v.findViewById(R.id.histTitle)
+            val time: TextView = v.findViewById(R.id.histTime)
+            val url: TextView = v.findViewById(R.id.histUrl)
+            val delete: View = v.findViewById(R.id.histDelete)
         }
     }
 }

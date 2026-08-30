@@ -241,6 +241,9 @@ menuBtn.addEventListener('click', (e) => {
   const rect = menuBtn.getBoundingClientRect();
   api.popupAppMenu(Math.round(rect.left), Math.round(rect.bottom));
 });
+document.getElementById('downloadsBtn').addEventListener('click', () => {
+  api.openDownloads();
+});
 
 const updateBadge = document.getElementById('updateBadge');
 
@@ -256,6 +259,10 @@ function overlayHeight() {
   const passBar = document.getElementById('passwordBar');
   if (passBar && !passBar.classList.contains('hidden')) {
     extra += Math.max(36, Math.ceil(passBar.getBoundingClientRect().height));
+  }
+  const dlBar = document.getElementById('downloadBar');
+  if (dlBar && !dlBar.classList.contains('hidden')) {
+    extra += Math.max(36, Math.ceil(dlBar.getBoundingClientRect().height));
   }
   return extra;
 }
@@ -433,11 +440,95 @@ document.getElementById('passwordSave').addEventListener('click', async () => {
 document.getElementById('passwordDismiss').addEventListener('click', closePasswordBar);
 document.getElementById('passwordClose').addEventListener('click', closePasswordBar);
 
+const downloadBar = document.getElementById('downloadBar');
+const downloadBarText = document.getElementById('downloadBarText');
+const downloadBarMeta = document.getElementById('downloadBarMeta');
+const downloadBarOpen = document.getElementById('downloadBarOpen');
+const downloadBarShow = document.getElementById('downloadBarShow');
+const downloadsBadge = document.getElementById('downloadsBadge');
+let currentDownload = null;
+
+function formatBytes(n) {
+  const v = Number(n) || 0;
+  if (v < 1024) return `${v} B`;
+  if (v < 1024 * 1024) return `${(v / 1024).toFixed(1)} KB`;
+  if (v < 1024 * 1024 * 1024) return `${(v / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(v / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+}
+
+function closeDownloadBar() {
+  if (downloadBar.classList.contains('hidden')) return;
+  downloadBar.classList.add('hidden');
+  syncChromeExtra();
+}
+
+function showDownloadBar(item) {
+  if (!item) return;
+  currentDownload = item;
+  const wasHidden = downloadBar.classList.contains('hidden');
+  const name = item.filename || 'download';
+  if (item.state === 'completed') {
+    downloadBarText.textContent = `已下载 ${name}`;
+    downloadBarMeta.textContent = formatBytes(item.receivedBytes || item.totalBytes);
+    downloadBarOpen.classList.remove('hidden');
+    downloadBarShow.classList.remove('hidden');
+  } else if (item.state === 'cancelled') {
+    downloadBarText.textContent = `已取消 ${name}`;
+    downloadBarMeta.textContent = '';
+    downloadBarOpen.classList.add('hidden');
+    downloadBarShow.classList.add('hidden');
+  } else if (item.state === 'interrupted') {
+    downloadBarText.textContent = `下载中断 ${name}`;
+    downloadBarMeta.textContent = '';
+    downloadBarOpen.classList.add('hidden');
+    downloadBarShow.classList.add('hidden');
+  } else {
+    const rec = Number(item.receivedBytes) || 0;
+    const tot = Number(item.totalBytes) || 0;
+    const pct = tot > 0 ? `${Math.min(100, Math.round((rec / tot) * 100))}%` : '';
+    downloadBarText.textContent = `${item.paused ? '已暂停' : '正在下载'} ${name}`;
+    downloadBarMeta.textContent = [pct, tot ? `${formatBytes(rec)} / ${formatBytes(tot)}` : formatBytes(rec)]
+      .filter(Boolean)
+      .join(' · ');
+    downloadBarOpen.classList.add('hidden');
+    downloadBarShow.classList.add('hidden');
+  }
+  downloadBar.classList.remove('hidden');
+  if (wasHidden) syncChromeExtra();
+}
+
+function renderDownloadsBadge(payload) {
+  const n = payload && Number(payload.activeCount);
+  if (n > 0) {
+    downloadsBadge.textContent = String(n);
+    downloadsBadge.classList.remove('hidden');
+    downloadsBadge.classList.add('downloading');
+  } else {
+    downloadsBadge.textContent = '';
+    downloadsBadge.classList.add('hidden');
+    downloadsBadge.classList.remove('downloading');
+  }
+}
+
+downloadBarOpen.addEventListener('click', () => {
+  if (currentDownload) api.downloadOpen(currentDownload.id);
+});
+downloadBarShow.addEventListener('click', () => {
+  if (currentDownload) api.downloadShow(currentDownload.id);
+});
+document.getElementById('downloadBarList').addEventListener('click', () => {
+  api.openDownloads();
+});
+document.getElementById('downloadBarClose').addEventListener('click', closeDownloadBar);
+
 api.onCommand((cmd) => {
   if (!cmd || !cmd.action) return;
   if (cmd.action === 'openFind') openFindBar();
   if (cmd.action === 'editHomepage') openHomepageDialog();
   if (cmd.action === 'offerSavePassword') openPasswordBar(cmd.payload);
+  if (cmd.action === 'downloadChanged') {
+    renderDownloadsBadge(cmd.payload);
+  }
   if (cmd.action === 'findNext') {
     if (findBar.classList.contains('hidden')) openFindBar();
     else runFind(true, true);

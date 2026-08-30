@@ -1,124 +1,84 @@
 package com.jianxing.browser.ui
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.app.role.RoleManager
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.os.Build
 import android.os.Bundle
+import android.print.PrintAttributes
+import android.print.PrintManager
 import android.provider.Settings
-import android.util.TypedValue
+import android.view.Gravity
 import android.view.KeyEvent
-import android.view.MenuItem
+import android.view.LayoutInflater
 import android.view.View
 import android.view.inputmethod.EditorInfo
-import android.widget.PopupMenu
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
+import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import android.text.InputType
-import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.PopupMenu
+import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.isVisible
-import com.google.android.material.button.MaterialButton
 import com.jianxing.browser.JianXingApp
+import com.jianxing.browser.R
+import com.jianxing.browser.data.BookmarkNode
+import com.jianxing.browser.data.DownloadsHelper
 import com.jianxing.browser.databinding.ActivityMainBinding
 import com.jianxing.browser.guard.NavigationGuard
 import com.jianxing.browser.model.BlockReason
 import org.json.JSONObject
+import java.util.UUID
 import java.util.concurrent.Executors
 
 class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
     private val guardExecutor = Executors.newSingleThreadExecutor()
-    private var lastCheckedUrl: String? = null
-    private var loadingBlockedPage = false
+    private val tabs = mutableListOf<BrowserTab>()
+    private var activeTabId: String? = null
+    private var pendingPassword: PendingPassword? = null
+    private var chromeHidden = false
 
-    @SuppressLint("SetJavaScriptEnabled")
+    data class BrowserTab(
+        val id: String,
+        val webView: WebView,
+        var title: String = "新标签页",
+        var url: String = "",
+        var loading: Boolean = false,
+        var lastCheckedUrl: String? = null,
+        var loadingBlockedPage: Boolean = false
+    )
+
+    data class PendingPassword(
+        val origin: String,
+        val host: String,
+        val username: String,
+        val password: String,
+        val update: Boolean
+    )
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        val web = binding.webView
-        web.settings.javaScriptEnabled = true
-        web.settings.domStorageEnabled = true
-        web.settings.setSupportZoom(true)
-        web.settings.builtInZoomControls = true
-        web.settings.displayZoomControls = false
-        web.settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            web.importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_YES
-        }
-        web.addJavascriptInterface(Bridge(), "JianXing")
-
-        web.webChromeClient = object : WebChromeClient() {
-            override fun onProgressChanged(view: WebView?, newProgress: Int) {
-                binding.progress.isVisible = newProgress in 1..99
-                binding.progress.progress = newProgress
-            }
-        }
-
-        web.webViewClient = object : WebViewClient() {
-            override fun shouldOverrideUrlLoading(
-                view: WebView?,
-                request: WebResourceRequest?
-            ): Boolean {
-                val url = request?.url?.toString() ?: return false
-                if (url.startsWith("file:///android_asset/")) return false
-                checkAndLoad(url, fromUser = false)
-                return true
-            }
-
-            @Deprecated("Deprecated in Java")
-            override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
-                if (url.isNullOrBlank() || url.startsWith("file:///android_asset/")) return false
-                checkAndLoad(url, fromUser = false)
-                return true
-            }
-
-            override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                if (!loadingBlockedPage && url != null && !url.startsWith("file:///android_asset/")) {
-                    binding.urlBar.setText(url)
-                }
-            }
-
-            override fun onPageFinished(view: WebView?, url: String?) {
-                loadingBlockedPage = false
-                updateNavButtons()
-                updateStarButton()
-                if (!url.isNullOrBlank() &&
-                    (url.startsWith("http://") || url.startsWith("https://"))
-                ) {
-                    val title = view?.title?.takeIf { it.isNotBlank() } ?: url
-                    JianXingApp.instance.historyStore.record(url, title)
-                    injectSitePasswordScript()
-                }
-            }
-        }
-
-        binding.btnBack.setOnClickListener {
-            if (web.canGoBack()) web.goBack()
-        }
-        binding.btnForward.setOnClickListener {
-            if (web.canGoForward()) web.goForward()
-        }
-        binding.btnReload.setOnClickListener {
-            val current = web.url
-            if (current != null && current.startsWith("file:///android_asset/")) {
-                val original = NavigationGuard.parseQueryParam(current, "url")
-                if (!original.isNullOrBlank()) checkAndLoad(original, fromUser = true)
-            } else {
-                web.reload()
-            }
-        }
-        binding.btnGo.setOnClickListener { navigateFromBar() }
+        binding.btnNewTab.setOnClickListener { newTab() }
+        binding.btnBack.setOnClickListener { goBack() }
+        binding.btnForward.setOnClickListener { goForward() }
+        binding.btnReload.setOnClickListener { reload() }
         binding.btnStar.setOnClickListener { toggleBookmark() }
+        binding.btnDownloads.setOnClickListener {
+            startActivity(Intent(this, DownloadsActivity::class.java))
+        }
         binding.btnMenu.setOnClickListener { showAppMenu(it) }
         binding.urlBar.setOnEditorActionListener { _, actionId, event ->
             if (actionId == EditorInfo.IME_ACTION_GO ||
@@ -129,30 +89,49 @@ class MainActivity : AppCompatActivity() {
             } else false
         }
 
-        val launchUrl = extractHttpUrl(intent)
-        if (launchUrl != null) {
-            checkAndLoad(launchUrl, fromUser = true)
-        } else {
-            openHomepage()
+        binding.passwordSave.setOnClickListener { savePendingPassword() }
+        binding.passwordDismiss.setOnClickListener { closePasswordBar() }
+        binding.passwordClose.setOnClickListener { closePasswordBar() }
+        binding.homepageSave.setOnClickListener { saveHomepageFromBar() }
+        binding.homepageUseCurrent.setOnClickListener { setCurrentHomepage() }
+        binding.homepageClear.setOnClickListener { clearHomepage() }
+        binding.homepageClose.setOnClickListener { closeHomepageBar() }
+        binding.homepageInput.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_DONE || actionId == EditorInfo.IME_ACTION_GO) {
+                saveHomepageFromBar(); true
+            } else false
         }
+        binding.findInput.setOnEditorActionListener { _, actionId, event ->
+            if (actionId == EditorInfo.IME_ACTION_SEARCH ||
+                (event != null && event.keyCode == KeyEvent.KEYCODE_ENTER)
+            ) {
+                runFind(forward = true, findNext = true); true
+            } else false
+        }
+        binding.findInput.addTextChangedListener(SimpleTextWatcher { runFind(true, false) })
+        binding.findPrev.setOnClickListener { runFind(false, true) }
+        binding.findNext.setOnClickListener { runFind(true, true) }
+        binding.findClose.setOnClickListener { closeFindBar() }
+
+        val launchUrl = extractHttpUrl(intent)
+        if (launchUrl != null) newTab(launchUrl) else newTab()
         refreshBookmarksBar()
-        updateNavButtons()
-        updateStarButton()
-        updateUrlHint()
+        updateChrome()
+        refreshSetupBadge()
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         val url = extractHttpUrl(intent)
-        if (url != null) checkAndLoad(url, fromUser = true)
+        if (url != null) newTab(url)
     }
 
     override fun onResume() {
         super.onResume()
         refreshBookmarksBar()
-        updateStarButton()
-        updateUrlHint()
+        updateChrome()
+        refreshSetupBadge()
     }
 
     private fun extractHttpUrl(intent: Intent?): String? {
@@ -160,94 +139,150 @@ class MainActivity : AppCompatActivity() {
         return if (data.startsWith("http://") || data.startsWith("https://")) data else null
     }
 
-    private fun requestDefaultBrowser() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val roleManager = getSystemService(RoleManager::class.java)
-            if (roleManager.isRoleAvailable(RoleManager.ROLE_BROWSER)) {
-                if (roleManager.isRoleHeld(RoleManager.ROLE_BROWSER)) {
-                    Toast.makeText(this, "已经是默认浏览器", Toast.LENGTH_SHORT).show()
-                    return
-                }
-                startActivity(roleManager.createRequestRoleIntent(RoleManager.ROLE_BROWSER))
-                return
-            }
-        }
-        startActivity(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
-    }
+    private fun activeTab(): BrowserTab? = tabs.find { it.id == activeTabId } ?: tabs.lastOrNull()
 
-    private fun updateUrlHint() {
-        val filtered = JianXingApp.instance.rulesStore.isFilteringEnabled()
-        binding.urlBar.hint = getString(
-            if (filtered) R.string.url_hint_filtered else R.string.url_hint
+    private fun newTab(initialUrl: String? = null): BrowserTab {
+        val tab = BrowserTab(id = newTabId(), webView = createWebView())
+        tabs.add(tab)
+        binding.webHost.addView(
+            tab.webView,
+            android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT
+            )
         )
+        activateTab(tab.id)
+        if (initialUrl != null) checkAndLoad(tab, initialUrl, fromUser = true)
+        else openHomepage(tab)
+        renderTabs()
+        return tab
     }
 
-    private fun currentPageUrl(): String {
-        val url = binding.webView.url.orEmpty()
-        return if (url.startsWith("http://") || url.startsWith("https://")) url else ""
-    }
-
-    private fun showHomepageDialog() {
-        val store = JianXingApp.instance.rulesStore
-        val input = EditText(this).apply {
-            inputType = InputType.TYPE_TEXT_VARIATION_URI
-            setText(store.getHomepage())
-            hint = getString(R.string.homepage_hint)
+    private fun closeTab(id: String) {
+        val idx = tabs.indexOfFirst { it.id == id }
+        if (idx < 0) return
+        val tab = tabs.removeAt(idx)
+        binding.webHost.removeView(tab.webView)
+        tab.webView.destroy()
+        if (tabs.isEmpty()) {
+            newTab()
+            return
         }
-        AlertDialog.Builder(this)
-            .setTitle(R.string.homepage)
-            .setView(input)
-            .setNeutralButton(R.string.homepage_use_current) { _, _ ->
-                val url = currentPageUrl()
-                if (url.isBlank()) {
-                    Toast.makeText(this, "当前没有打开的网页", Toast.LENGTH_SHORT).show()
-                    return@setNeutralButton
-                }
-                if (!store.setHomepage(url)) {
-                    Toast.makeText(this, "网址无效", Toast.LENGTH_SHORT).show()
-                    return@setNeutralButton
-                }
-                Toast.makeText(this, "已保存", Toast.LENGTH_SHORT).show()
-            }
-            .setNegativeButton(R.string.homepage_clear) { _, _ ->
-                store.setHomepage("")
-                Toast.makeText(this, "已清除", Toast.LENGTH_SHORT).show()
-            }
-            .setPositiveButton(R.string.save) { _, _ ->
-                val raw = input.text?.toString().orEmpty()
-                if (!store.setHomepage(raw)) {
-                    Toast.makeText(this, "网址无效", Toast.LENGTH_SHORT).show()
-                    return@setPositiveButton
-                }
-                Toast.makeText(this, "已保存", Toast.LENGTH_SHORT).show()
-            }
-            .show()
+        if (activeTabId == id) {
+            val next = tabs.getOrNull(idx.coerceAtMost(tabs.lastIndex)) ?: tabs.last()
+            activateTab(next.id)
+        }
+        renderTabs()
+        updateChrome()
     }
 
-    private fun openHomepage() {
-        val home = JianXingApp.instance.rulesStore.getHomepage()
-        if (home.isNotBlank()) {
-            checkAndLoad(home, fromUser = true)
-        } else {
-            binding.webView.loadDataWithBaseURL(null, homeHtml(), "text/html", "UTF-8", null)
-            binding.urlBar.setText("")
-        }
+    private fun activateTab(id: String) {
+        activeTabId = id
+        tabs.forEach { it.webView.isVisible = it.id == id }
+        renderTabs()
+        updateChrome()
+        applyZoom(activeTab())
     }
 
-    private fun homeHtml(): String {
-        val filtered = JianXingApp.instance.rulesStore.isFilteringEnabled()
-        val hint = if (filtered) {
-            "请在地址栏输入已授权的网址"
-        } else {
-            "访问过滤未开启。请在地址栏输入网址开始浏览"
+    @SuppressLint("SetJavaScriptEnabled")
+    private fun createWebView(): WebView {
+        val web = WebView(this)
+        web.settings.javaScriptEnabled = true
+        web.settings.domStorageEnabled = true
+        web.settings.setSupportZoom(true)
+        web.settings.builtInZoomControls = true
+        web.settings.displayZoomControls = false
+        web.settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+        web.settings.textZoom = JianXingApp.instance.settingsStore.getTextZoom()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            web.importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_YES
         }
-        return HOME_HTML.replace("<!--HINT-->", hint)
+        web.addJavascriptInterface(Bridge(), "JianXing")
+        web.setDownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
+            startDownload(url, userAgent, contentDisposition, mimeType)
+        }
+        web.setFindListener { active, numberOfMatches, _ ->
+            binding.findCount.text =
+                if (numberOfMatches > 0) "${active + 1} / $numberOfMatches" else "无匹配"
+        }
+        web.webChromeClient = object : WebChromeClient() {
+            override fun onProgressChanged(view: WebView?, newProgress: Int) {
+                val tab = tabs.find { it.webView == view } ?: return
+                tab.loading = newProgress in 1..99
+                if (tab.id == activeTabId) {
+                    binding.progress.isVisible = tab.loading
+                    binding.progress.progress = newProgress
+                    renderTabs()
+                }
+            }
+
+            override fun onReceivedTitle(view: WebView?, title: String?) {
+                val tab = tabs.find { it.webView == view } ?: return
+                if (!title.isNullOrBlank() && title != "about:blank") tab.title = title
+                if (tab.id == activeTabId) renderTabs()
+            }
+        }
+        web.webViewClient = object : WebViewClient() {
+            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                val url = request?.url?.toString() ?: return false
+                val tab = tabs.find { it.webView == view } ?: return true
+                if (url.startsWith("file:///android_asset/")) return false
+                if (DownloadsHelper.looksLikeDownload(url)) {
+                    startDownload(url, view?.settings?.userAgentString, null, null)
+                    return true
+                }
+                checkAndLoad(tab, url, fromUser = false)
+                return true
+            }
+
+            @Deprecated("Deprecated in Java")
+            override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
+                if (url.isNullOrBlank() || url.startsWith("file:///android_asset/")) return false
+                val tab = tabs.find { it.webView == view } ?: return true
+                if (DownloadsHelper.looksLikeDownload(url)) {
+                    startDownload(url, view?.settings?.userAgentString, null, null)
+                    return true
+                }
+                checkAndLoad(tab, url, fromUser = false)
+                return true
+            }
+
+            override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                val tab = tabs.find { it.webView == view } ?: return
+                tab.loading = true
+                if (!tab.loadingBlockedPage && url != null && !url.startsWith("file:///android_asset/")) {
+                    tab.url = url
+                    if (tab.id == activeTabId && currentFocus != binding.urlBar) {
+                        binding.urlBar.setText(url)
+                    }
+                }
+                if (tab.id == activeTabId) renderTabs()
+            }
+
+            override fun onPageFinished(view: WebView?, url: String?) {
+                val tab = tabs.find { it.webView == view } ?: return
+                tab.loadingBlockedPage = false
+                tab.loading = false
+                tab.title = view?.title?.takeIf { it.isNotBlank() } ?: tab.title
+                if (!url.isNullOrBlank() && (url.startsWith("http://") || url.startsWith("https://"))) {
+                    tab.url = url
+                    JianXingApp.instance.historyStore.record(url, tab.title)
+                    injectSitePasswordScript(tab)
+                }
+                if (tab.id == activeTabId) {
+                    updateChrome()
+                    renderTabs()
+                }
+            }
+        }
+        return web
     }
 
     private fun navigateFromBar() {
         val raw = binding.urlBar.text?.toString()?.trim().orEmpty()
         if (raw.isEmpty()) return
-        checkAndLoad(raw, fromUser = true)
+        val tab = activeTab() ?: newTab()
+        checkAndLoad(tab, raw, fromUser = true)
     }
 
     private fun normalizeForCheck(rawUrl: String): String {
@@ -260,49 +295,35 @@ class MainActivity : AppCompatActivity() {
         return s
     }
 
-    private fun checkAndLoad(rawUrl: String, @Suppress("UNUSED_PARAMETER") fromUser: Boolean) {
+    private fun checkAndLoad(tab: BrowserTab, rawUrl: String, @Suppress("UNUSED_PARAMETER") fromUser: Boolean) {
         val app = JianXingApp.instance
         val candidate = normalizeForCheck(rawUrl)
         guardExecutor.execute {
-            // Approved watch-request URLs bypass the guard (Electron parity)
             if (candidate.startsWith("http") && app.watchRequestsStore.isApprovedUrl(candidate)) {
-                runOnUiThread {
-                    lastCheckedUrl = candidate
-                    binding.urlBar.setText(candidate)
-                    binding.webView.loadUrl(candidate)
-                    updateNavButtons()
-                    updateStarButton()
-                }
+                runOnUiThread { loadAllowed(tab, candidate) }
                 return@execute
             }
-            val rules = app.rulesStore.load()
-            val result = NavigationGuard.canNavigate(rawUrl, rules)
+            val result = NavigationGuard.canNavigate(rawUrl, app.rulesStore.load())
             runOnUiThread {
                 if (result.allowed) {
-                    val finalUrl = result.finalUrl ?: rawUrl
-                    lastCheckedUrl = finalUrl
-                    if (!finalUrl.startsWith("file:")) {
-                        binding.urlBar.setText(finalUrl)
-                    }
-                    binding.webView.loadUrl(finalUrl)
+                    loadAllowed(tab, result.finalUrl ?: rawUrl)
                 } else {
-                    showBlock(
-                        rawUrl,
-                        result.reason,
-                        result.message,
-                        result.mid,
-                        result.bvid,
-                        result.aid,
-                        result.title
-                    )
+                    showBlock(tab, rawUrl, result.reason, result.message, result.mid, result.bvid, result.aid, result.title)
                 }
-                updateNavButtons()
-                updateStarButton()
             }
         }
     }
 
+    private fun loadAllowed(tab: BrowserTab, url: String) {
+        tab.lastCheckedUrl = url
+        tab.url = if (url.startsWith("file:")) "" else url
+        if (!url.startsWith("file:") && tab.id == activeTabId) binding.urlBar.setText(url)
+        tab.webView.loadUrl(url)
+        if (tab.id == activeTabId) updateChrome()
+    }
+
     private fun showBlock(
+        tab: BrowserTab,
         originalUrl: String,
         reason: BlockReason?,
         message: String?,
@@ -311,85 +332,450 @@ class MainActivity : AppCompatActivity() {
         aid: String?,
         title: String?
     ) {
-        loadingBlockedPage = true
-        val blockUrl = NavigationGuard.buildBlockAssetUrl(
-            originalUrl = originalUrl,
-            reason = reason,
-            message = message ?: "未授权的网站或内容",
-            mid = mid,
-            bvid = bvid,
-            aid = aid,
-            title = title
+        tab.loadingBlockedPage = true
+        tab.url = ""
+        tab.title = "此页面不可访问"
+        tab.webView.loadUrl(
+            NavigationGuard.buildBlockAssetUrl(
+                originalUrl = originalUrl,
+                reason = reason,
+                message = message ?: "未授权的网站或内容",
+                mid = mid, bvid = bvid, aid = aid, title = title
+            )
         )
-        binding.webView.loadUrl(blockUrl)
+        if (tab.id == activeTabId) {
+            binding.urlBar.setText("")
+            updateChrome()
+            renderTabs()
+        }
+    }
+
+    private fun openHomepage(tab: BrowserTab = activeTab() ?: newTab()) {
+        val home = JianXingApp.instance.rulesStore.getHomepage()
+        if (home.isNotBlank()) {
+            checkAndLoad(tab, home, fromUser = true)
+        } else {
+            val filtered = JianXingApp.instance.rulesStore.isFilteringEnabled()
+            val hint = if (filtered) {
+                "请在地址栏输入已授权的网址。B 站仅可打开白名单 UP 的视频或空间。"
+            } else {
+                "访问过滤未开启。请在地址栏输入网址开始浏览。"
+            }
+            tab.webView.loadUrl(
+                NavigationGuard.buildBlockAssetUrl(
+                    originalUrl = "(未打开页面)",
+                    reason = BlockReason.HOST_DENIED,
+                    message = hint
+                )
+            )
+            tab.url = ""
+            tab.title = "开始"
+            if (tab.id == activeTabId) {
+                binding.urlBar.setText("")
+                updateChrome()
+            }
+        }
+    }
+
+    private fun goBack() {
+        val tab = activeTab() ?: return
+        if (tab.webView.canGoBack()) tab.webView.goBack()
+    }
+
+    private fun goForward() {
+        val tab = activeTab() ?: return
+        if (tab.webView.canGoForward()) tab.webView.goForward()
+    }
+
+    private fun reload() {
+        val tab = activeTab() ?: return
+        val current = tab.webView.url
+        if (current != null && current.startsWith("file:///android_asset/")) {
+            val original = NavigationGuard.parseQueryParam(current, "url")
+            if (!original.isNullOrBlank() && original.startsWith("http")) {
+                checkAndLoad(tab, original, fromUser = true)
+                return
+            }
+        }
+        tab.webView.reload()
     }
 
     private fun currentPageUrl(): String? {
-        val url = binding.webView.url ?: return null
+        val tab = activeTab() ?: return null
+        val url = tab.webView.url ?: tab.url
         if (url.startsWith("file:///android_asset/")) {
             val original = NavigationGuard.parseQueryParam(url, "url")
             if (!original.isNullOrBlank() && original.startsWith("http")) return original
             return null
         }
-        if (url.startsWith("file:") || url.startsWith("data:") || url.startsWith("about:")) return null
-        if (!url.startsWith("http")) return null
-        return url
+        if (url.startsWith("http://") || url.startsWith("https://")) return url
+        return null
     }
 
     private fun toggleBookmark() {
         val url = currentPageUrl()
         if (url == null) {
-            Toast.makeText(this, "只能收藏网页地址", Toast.LENGTH_SHORT).show()
+            toast("只能收藏网页地址")
             return
         }
-        val title = binding.webView.title?.takeIf { it.isNotBlank() } ?: url
+        val title = activeTab()?.webView?.title?.takeIf { it.isNotBlank() } ?: url
         val bookmarked = JianXingApp.instance.bookmarksStore.toggle(url, title)
-        Toast.makeText(
-            this,
-            if (bookmarked) "已加入书签" else "已取消书签",
-            Toast.LENGTH_SHORT
-        ).show()
-        updateStarButton()
+        toast(if (bookmarked) "已加入书签" else "已取消书签")
+        updateChrome()
         refreshBookmarksBar()
     }
 
-    private fun updateStarButton() {
+    private fun updateChrome() {
+        val tab = activeTab()
+        val filtered = JianXingApp.instance.rulesStore.isFilteringEnabled()
+        binding.urlBar.hint = getString(if (filtered) R.string.url_hint_filtered else R.string.url_hint)
+        if (tab == null) {
+            binding.btnBack.isEnabled = false
+            binding.btnForward.isEnabled = false
+            binding.btnStar.isEnabled = false
+            binding.btnStar.text = "☆"
+            binding.btnStar.setTextColor(getColor(R.color.jx_text))
+            return
+        }
+        if (currentFocus != binding.urlBar) {
+            val show = if (tab.url.startsWith("file:")) "" else tab.url
+            if (binding.urlBar.text?.toString() != show) binding.urlBar.setText(show)
+        }
+        binding.btnBack.isEnabled = tab.webView.canGoBack()
+        binding.btnForward.isEnabled = tab.webView.canGoForward()
         val url = currentPageUrl()
         val starred = url != null && JianXingApp.instance.bookmarksStore.isBookmarked(url)
-        binding.btnStar.text = if (starred) "★ 已收藏" else "☆ 收藏"
+        binding.btnStar.isEnabled = url != null
+        binding.btnStar.text = if (starred) "★" else "☆"
+        binding.btnStar.setTextColor(getColor(if (starred) R.color.jx_star else R.color.jx_text))
+        binding.progress.isVisible = tab.loading
+        applyBookmarksBarVisibility()
+        refreshSetupBadge()
+    }
+
+    private fun renderTabs() {
+        binding.tabsBar.removeAllViews()
+        val inflater = LayoutInflater.from(this)
+        for (tab in tabs) {
+            val chip = inflater.inflate(R.layout.item_tab, binding.tabsBar, false)
+            val title = chip.findViewById<TextView>(R.id.tabTitle)
+            val close = chip.findViewById<TextView>(R.id.tabClose)
+            val active = tab.id == activeTabId
+            chip.isSelected = active
+            title.text = if (tab.loading) "加载中…" else tab.title.ifBlank { "新标签页" }
+            title.setTextColor(getColor(if (active) R.color.jx_text else R.color.jx_muted))
+            close.setOnClickListener { closeTab(tab.id) }
+            chip.setOnClickListener { activateTab(tab.id) }
+            binding.tabsBar.addView(chip)
+        }
     }
 
     private fun refreshBookmarksBar() {
         val bar = binding.bookmarksBar
         bar.removeAllViews()
-        val items = JianXingApp.instance.bookmarksStore.listAllBookmarks()
-        binding.bookmarksEmpty.isVisible = items.isEmpty()
-        binding.bookmarksScroll.isVisible = true
-        val pad = TypedValue.applyDimension(
-            TypedValue.COMPLEX_UNIT_DIP, 8f, resources.displayMetrics
-        ).toInt()
-        items.forEach { bm ->
-            val btn = MaterialButton(
-                this,
-                null,
-                com.google.android.material.R.attr.materialButtonOutlinedStyle
-            ).apply {
-                text = bm.title.take(16)
+        val items = JianXingApp.instance.bookmarksStore.listToolbar()
+        val pad = (8 * resources.displayMetrics.density).toInt()
+        items.forEach { node ->
+            val chip = TextView(this).apply {
+                text = if (node.type == "folder") "${node.title} ▾" else node.title
                 textSize = 12f
-                minimumHeight = 0
-                minHeight = 0
+                setTextColor(getColor(R.color.jx_text))
                 setPadding(pad, pad / 2, pad, pad / 2)
+                background = getDrawable(R.drawable.bg_find_input)
+                maxLines = 1
+                maxWidth = (160 * resources.displayMetrics.density).toInt()
+                ellipsize = android.text.TextUtils.TruncateAt.END
                 setOnClickListener {
-                    val u = bm.url ?: return@setOnClickListener
-                    checkAndLoad(u, fromUser = true)
+                    if (node.type == "folder") showFolderPopup(this, node)
+                    else node.url?.let { url ->
+                        val tab = activeTab() ?: newTab()
+                        checkAndLoad(tab, url, fromUser = true)
+                    }
+                }
+            }
+            if (node.type != "folder") {
+                chip.setOnLongClickListener {
+                    JianXingApp.instance.bookmarksStore.removeBookmark(node.id)
+                    refreshBookmarksBar()
+                    updateChrome()
+                    true
                 }
             }
             val lp = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { marginEnd = pad / 2 }
-            bar.addView(btn, lp)
+            bar.addView(chip, lp)
         }
+        applyBookmarksBarVisibility()
+    }
+
+    private fun showFolderPopup(anchor: View, folder: BookmarkNode) {
+        val kids = JianXingApp.instance.bookmarksStore.children(folder.id)
+        val popup = PopupMenu(this, anchor, Gravity.TOP)
+        if (kids.isEmpty()) {
+            popup.menu.add(0, 0, 0, "（空文件夹）").isEnabled = false
+        } else {
+            kids.forEachIndexed { i, child ->
+                popup.menu.add(0, i + 1, i, child.title)
+            }
+        }
+        popup.setOnMenuItemClickListener { item ->
+            val child = kids.getOrNull(item.itemId - 1) ?: return@setOnMenuItemClickListener false
+            if (child.type == "folder") showFolderPopup(anchor, child)
+            else child.url?.let {
+                val tab = activeTab() ?: newTab()
+                checkAndLoad(tab, it, fromUser = true)
+            }
+            true
+        }
+        popup.show()
+    }
+
+    private fun applyBookmarksBarVisibility() {
+        val visible = JianXingApp.instance.settingsStore.isBookmarksBarVisible() && !chromeHidden
+        binding.bookmarksScroll.isVisible = visible
+        binding.bookmarksBarLine.isVisible = visible
+    }
+
+    private fun refreshSetupBadge() {
+        val needs = !JianXingApp.instance.rulesStore.hasPassword()
+        binding.updateBadge.isVisible = needs
+        binding.updateBadge.text = "!"
+        binding.btnMenu.strokeColor = android.content.res.ColorStateList.valueOf(
+            getColor(if (needs) R.color.jx_danger else R.color.jx_line)
+        )
+    }
+
+    private fun showAppMenu(anchor: View) {
+        val popup = PopupMenu(this, anchor)
+        val url = currentPageUrl()
+        val starred = url != null && JianXingApp.instance.bookmarksStore.isBookmarked(url)
+        val zoom = JianXingApp.instance.settingsStore.getTextZoom()
+        popup.menu.add(0, MENU_NEW_TAB, 0, getString(R.string.menu_new_tab))
+        popup.menu.add(0, MENU_CLOSE_TAB, 0, getString(R.string.menu_close_tab))
+        popup.menu.add(0, MENU_TOGGLE_BM, 0, getString(if (starred) R.string.menu_unbookmark else R.string.menu_new_bookmark))
+        popup.menu.add(0, MENU_MANAGE_BM, 0, getString(R.string.menu_bookmarks))
+        popup.menu.add(0, MENU_HOME, 0, getString(R.string.menu_home))
+        popup.menu.add(0, MENU_SET_CURRENT_HOME, 0, getString(R.string.menu_set_current_home))
+        popup.menu.add(0, MENU_SET_HOME, 0, getString(R.string.menu_set_homepage))
+        popup.menu.add(0, MENU_HISTORY, 0, getString(R.string.menu_history))
+        popup.menu.add(0, MENU_DOWNLOADS, 0, getString(R.string.menu_downloads))
+        popup.menu.add(0, MENU_FIND, 0, getString(R.string.menu_find))
+        popup.menu.add(0, MENU_PRINT, 0, getString(R.string.menu_print))
+        val zoomMenu = popup.menu.addSubMenu(0, MENU_ZOOM, 0, "${getString(R.string.menu_zoom)}（$zoom%）")
+        zoomMenu.add(0, MENU_ZOOM_IN, 0, getString(R.string.menu_zoom_in))
+        zoomMenu.add(0, MENU_ZOOM_OUT, 0, getString(R.string.menu_zoom_out))
+        zoomMenu.add(0, MENU_ZOOM_RESET, 0, getString(R.string.menu_zoom_reset))
+        popup.menu.add(0, MENU_FULLSCREEN, 0, getString(R.string.menu_fullscreen))
+        popup.menu.add(
+            0, MENU_PARENT, 0,
+            getString(if (JianXingApp.instance.rulesStore.hasPassword()) R.string.menu_parent else R.string.menu_parent_setup)
+        )
+        popup.menu.add(0, MENU_UPDATE, 0, getString(R.string.menu_update))
+        popup.menu.add(0, MENU_PASSWORDS, 0, getString(R.string.menu_saved_passwords))
+        popup.menu.add(0, MENU_DEFAULT, 0, getString(R.string.menu_default_browser))
+        val barItem = popup.menu.add(0, MENU_BM_BAR, 0, getString(R.string.menu_bookmarks_bar))
+        barItem.isCheckable = true
+        barItem.isChecked = JianXingApp.instance.settingsStore.isBookmarksBarVisible()
+        popup.menu.add(0, MENU_ABOUT, 0, getString(R.string.menu_about))
+
+        popup.setOnMenuItemClickListener { item ->
+            when (item.itemId) {
+                MENU_NEW_TAB -> newTab()
+                MENU_CLOSE_TAB -> activeTab()?.id?.let { closeTab(it) }
+                MENU_TOGGLE_BM -> toggleBookmark()
+                MENU_MANAGE_BM -> openBookmarks()
+                MENU_HOME -> openHomepage()
+                MENU_SET_CURRENT_HOME -> setCurrentHomepage()
+                MENU_SET_HOME -> openHomepageBar()
+                MENU_HISTORY -> openHistory()
+                MENU_DOWNLOADS -> startActivity(Intent(this, DownloadsActivity::class.java))
+                MENU_FIND -> openFindBar()
+                MENU_PRINT -> printPage()
+                MENU_ZOOM_IN -> changeZoom(10)
+                MENU_ZOOM_OUT -> changeZoom(-10)
+                MENU_ZOOM_RESET -> changeZoom(0, reset = true)
+                MENU_FULLSCREEN -> toggleFullscreen()
+                MENU_PARENT -> startActivity(Intent(this, ParentActivity::class.java))
+                MENU_UPDATE -> startActivity(Intent(this, UpdateActivity::class.java))
+                MENU_PASSWORDS -> startActivity(Intent(this, PasswordsActivity::class.java))
+                MENU_DEFAULT -> requestDefaultBrowser()
+                MENU_BM_BAR -> {
+                    val next = !JianXingApp.instance.settingsStore.isBookmarksBarVisible()
+                    JianXingApp.instance.settingsStore.setBookmarksBarVisible(next)
+                    applyBookmarksBarVisibility()
+                }
+                MENU_ABOUT -> showAbout()
+            }
+            true
+        }
+        popup.show()
+    }
+
+    private fun openBookmarks() {
+        @Suppress("DEPRECATION")
+        startActivityForResult(Intent(this, BookmarksActivity::class.java), BookmarksActivity.REQ_OPEN)
+    }
+
+    private fun openHistory() {
+        @Suppress("DEPRECATION")
+        startActivityForResult(Intent(this, HistoryActivity::class.java), HistoryActivity.REQ_OPEN)
+    }
+
+    private fun showAbout() {
+        val ver = try {
+            packageManager.getPackageInfo(packageName, 0).versionName
+        } catch (_: Exception) { "?" }
+        AlertDialog.Builder(this)
+            .setTitle(R.string.app_name)
+            .setMessage("版本 $ver\n面向家庭的青少年浏览器。\n访问由家长配置组控制；历史记录仅家长可删除。")
+            .setPositiveButton(android.R.string.ok, null)
+            .show()
+    }
+
+    private fun requestDefaultBrowser() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val roleManager = getSystemService(RoleManager::class.java)
+            if (roleManager.isRoleAvailable(RoleManager.ROLE_BROWSER)) {
+                if (roleManager.isRoleHeld(RoleManager.ROLE_BROWSER)) {
+                    toast("已经是默认浏览器")
+                    return
+                }
+                startActivity(roleManager.createRequestRoleIntent(RoleManager.ROLE_BROWSER))
+                return
+            }
+        }
+        startActivity(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
+    }
+
+    private fun changeZoom(delta: Int, reset: Boolean = false) {
+        val store = JianXingApp.instance.settingsStore
+        val next = if (reset) 100 else store.getTextZoom() + delta
+        store.setTextZoom(next)
+        applyZoom(activeTab())
+        toast("缩放 ${store.getTextZoom()}%")
+    }
+
+    private fun applyZoom(tab: BrowserTab?) {
+        tab?.webView?.settings?.textZoom = JianXingApp.instance.settingsStore.getTextZoom()
+    }
+
+    private fun printPage() {
+        val tab = activeTab() ?: return
+        val mgr = getSystemService(PRINT_SERVICE) as? PrintManager ?: return
+        val adapter = tab.webView.createPrintDocumentAdapter(tab.title.ifBlank { "简行浏览器" })
+        mgr.print(tab.title.ifBlank { "简行" }, adapter, PrintAttributes.Builder().build())
+    }
+
+    private fun toggleFullscreen() {
+        chromeHidden = !chromeHidden
+        val show = !chromeHidden
+        binding.chrome.isVisible = show
+        binding.toolbar.isVisible = show
+        applyBookmarksBarVisibility()
+        if (chromeHidden) {
+            window.decorView.systemUiVisibility =
+                View.SYSTEM_UI_FLAG_FULLSCREEN or
+                    View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+                    View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+        } else {
+            window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
+        }
+    }
+
+    private fun openFindBar() {
+        binding.findBar.isVisible = true
+        binding.findInput.requestFocus()
+        val q = binding.findInput.text?.toString().orEmpty()
+        if (q.isNotEmpty()) activeTab()?.webView?.findAllAsync(q)
+    }
+
+    private fun closeFindBar() {
+        binding.findBar.isVisible = false
+        binding.findCount.text = ""
+        activeTab()?.webView?.clearMatches()
+    }
+
+    private fun runFind(forward: Boolean, findNext: Boolean) {
+        val q = binding.findInput.text?.toString().orEmpty()
+        val web = activeTab()?.webView ?: return
+        if (q.isEmpty()) {
+            web.clearMatches()
+            binding.findCount.text = ""
+            return
+        }
+        if (findNext) web.findNext(forward) else web.findAllAsync(q)
+    }
+
+    private fun openHomepageBar() {
+        binding.homepageError.text = ""
+        binding.homepageInput.setText(JianXingApp.instance.rulesStore.getHomepage())
+        binding.homepageBar.isVisible = true
+        binding.homepageInput.requestFocus()
+    }
+
+    private fun closeHomepageBar() {
+        binding.homepageBar.isVisible = false
+        binding.homepageError.text = ""
+    }
+
+    private fun saveHomepageFromBar() {
+        val raw = binding.homepageInput.text?.toString().orEmpty()
+        if (!JianXingApp.instance.rulesStore.setHomepage(raw)) {
+            binding.homepageError.text = "网址无效"
+            return
+        }
+        closeHomepageBar()
+        toast("已保存")
+    }
+
+    private fun setCurrentHomepage() {
+        val url = currentPageUrl()
+        if (url.isNullOrBlank()) {
+            binding.homepageError.text = "当前没有打开的网页"
+            toast("当前没有打开的网页")
+            return
+        }
+        if (!JianXingApp.instance.rulesStore.setHomepage(url)) {
+            binding.homepageError.text = "网址无效"
+            return
+        }
+        binding.homepageInput.setText(url)
+        closeHomepageBar()
+        toast("已保存")
+    }
+
+    private fun clearHomepage() {
+        JianXingApp.instance.rulesStore.setHomepage("")
+        closeHomepageBar()
+        toast("已清除")
+    }
+
+    private fun closePasswordBar() {
+        pendingPassword = null
+        binding.passwordBar.isVisible = false
+    }
+
+    private fun savePendingPassword() {
+        val offer = pendingPassword ?: return
+        JianXingApp.instance.sitePasswordsStore.save(offer.origin, offer.username, offer.password)
+        closePasswordBar()
+        toast("已保存密码")
+    }
+
+    private fun offerSaveSitePassword(username: String, password: String) {
+        val origin = pageOrigin()
+        if (origin.isBlank() || username.isBlank() || password.isBlank()) return
+        val store = JianXingApp.instance.sitePasswordsStore
+        val existing = store.find(origin, username)
+        if (existing != null && existing.password == password) return
+        val host = android.net.Uri.parse(origin).host ?: origin
+        pendingPassword = PendingPassword(origin, host, username, password, existing != null)
+        binding.passwordBarText.text =
+            if (existing != null) "更新 $host（$username）的密码？"
+            else "保存 $host（$username）的密码？"
+        binding.passwordBar.isVisible = true
     }
 
     @Deprecated("Deprecated in Java")
@@ -402,75 +788,31 @@ class MainActivity : AppCompatActivity() {
                 if (requestCode == HistoryActivity.REQ_OPEN) HistoryActivity.EXTRA_URL
                 else BookmarksActivity.EXTRA_URL
             )
-            if (!url.isNullOrBlank()) checkAndLoad(url, fromUser = true)
+            if (!url.isNullOrBlank()) {
+                val tab = activeTab() ?: newTab()
+                checkAndLoad(tab, url, fromUser = true)
+            }
         }
         refreshBookmarksBar()
-        updateStarButton()
-    }
-
-    private fun showAppMenu(anchor: android.view.View) {
-        val popup = PopupMenu(this, anchor)
-        popup.menu.add(0, 1, 0, getString(R.string.menu_new_bookmark))
-        popup.menu.add(0, 2, 1, getString(R.string.menu_bookmarks))
-        popup.menu.add(0, 3, 2, getString(R.string.menu_history))
-        popup.menu.add(0, 4, 3, getString(R.string.menu_home))
-        popup.menu.add(0, 5, 4, getString(R.string.menu_set_homepage))
-        popup.menu.add(0, 6, 5, getString(R.string.menu_parent))
-        popup.menu.add(0, 7, 6, getString(R.string.menu_default_browser))
-        popup.menu.add(0, 8, 7, getString(R.string.menu_saved_passwords))
-        popup.menu.add(0, 9, 8, getString(R.string.menu_about))
-        popup.setOnMenuItemClickListener { item: MenuItem ->
-            when (item.itemId) {
-                1 -> toggleBookmark()
-                2 -> {
-                    @Suppress("DEPRECATION")
-                    startActivityForResult(
-                        Intent(this, BookmarksActivity::class.java),
-                        BookmarksActivity.REQ_OPEN
-                    )
-                }
-                3 -> {
-                    @Suppress("DEPRECATION")
-                    startActivityForResult(
-                        Intent(this, HistoryActivity::class.java),
-                        HistoryActivity.REQ_OPEN
-                    )
-                }
-                4 -> openHomepage()
-                5 -> showHomepageDialog()
-                6 -> startActivity(Intent(this, ParentActivity::class.java))
-                7 -> requestDefaultBrowser()
-                8 -> showSavedPasswords()
-                9 -> {
-                    AlertDialog.Builder(this)
-                        .setTitle(R.string.app_name)
-                        .setMessage("面向家庭的青少年浏览器。\n访问由家长配置组控制；历史记录仅家长可删除。")
-                        .setPositiveButton(android.R.string.ok, null)
-                        .show()
-                }
-            }
-            true
-        }
-        popup.show()
-    }
-
-    private fun updateNavButtons() {
-        binding.btnBack.isEnabled = binding.webView.canGoBack()
-        binding.btnForward.isEnabled = binding.webView.canGoForward()
+        updateChrome()
     }
 
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
-        if (binding.webView.canGoBack()) {
-            binding.webView.goBack()
-        } else {
-            super.onBackPressed()
+        when {
+            chromeHidden -> toggleFullscreen()
+            binding.findBar.isVisible -> closeFindBar()
+            binding.homepageBar.isVisible -> closeHomepageBar()
+            binding.passwordBar.isVisible -> closePasswordBar()
+            activeTab()?.webView?.canGoBack() == true -> goBack()
+            else -> super.onBackPressed()
         }
     }
 
     override fun onDestroy() {
         guardExecutor.shutdownNow()
-        binding.webView.destroy()
+        tabs.forEach { it.webView.destroy() }
+        tabs.clear()
         super.onDestroy()
     }
 
@@ -484,54 +826,38 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun pageOrigin(): String = originOf(lastCheckedUrl ?: binding.webView.url.orEmpty())
-
-    private fun injectSitePasswordScript() {
-        binding.webView.evaluateJavascript(SITE_PASSWORD_JS, null)
+    private fun pageOrigin(): String {
+        val tab = activeTab() ?: return ""
+        return originOf(tab.lastCheckedUrl ?: tab.webView.url.orEmpty())
     }
 
-    private fun offerSaveSitePassword(username: String, password: String) {
-        val origin = pageOrigin()
-        if (origin.isBlank() || username.isBlank() || password.isBlank()) return
-        val store = JianXingApp.instance.sitePasswordsStore
-        val existing = store.find(origin, username)
-        if (existing != null && existing.password == password) return
-        val host = android.net.Uri.parse(origin).host ?: origin
-        val title = if (existing != null) "更新密码" else "保存密码"
-        AlertDialog.Builder(this)
-            .setTitle(title)
-            .setMessage("$host\n$username")
-            .setNegativeButton("不保存", null)
-            .setPositiveButton("保存") { _, _ ->
-                store.save(origin, username, password)
-            }
-            .show()
+    private fun injectSitePasswordScript(tab: BrowserTab) {
+        tab.webView.evaluateJavascript(SITE_PASSWORD_JS, null)
     }
 
-    private fun showSavedPasswords() {
-        val store = JianXingApp.instance.sitePasswordsStore
-        val items = store.list()
-        if (items.isEmpty()) {
-            Toast.makeText(this, "还没有保存的网站密码", Toast.LENGTH_SHORT).show()
-            return
-        }
-        val labels = items.map { "${it.username}  ·  ${it.host.ifBlank { it.origin }}" }.toTypedArray()
-        AlertDialog.Builder(this)
-            .setTitle(R.string.menu_saved_passwords)
-            .setItems(labels) { _, which ->
-                val entry = items.getOrNull(which) ?: return@setItems
-                AlertDialog.Builder(this)
-                    .setTitle("删除这条密码？")
-                    .setMessage("${entry.username}\n${entry.host}")
-                    .setNegativeButton(android.R.string.cancel, null)
-                    .setPositiveButton(R.string.remove) { _, _ ->
-                        store.remove(entry.id)
-                    }
-                    .show()
-            }
-            .setNegativeButton(android.R.string.cancel, null)
-            .show()
+    private fun startDownload(
+        url: String,
+        userAgent: String?,
+        contentDisposition: String?,
+        mimeType: String?
+    ) {
+        ensureNotifyPermission()
+        val res = DownloadsHelper.start(this, url, userAgent, contentDisposition, mimeType)
+        res.fold(
+            onSuccess = { toast("开始下载 ${it.filename}") },
+            onFailure = { toast(it.message ?: "下载失败") }
+        )
     }
+
+    private fun ensureNotifyPermission() {
+        if (Build.VERSION.SDK_INT < 33) return
+        if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
+        ) return
+        requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQ_NOTIFY)
+    }
+
+    private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
 
     inner class Bridge {
         @JavascriptInterface
@@ -544,8 +870,7 @@ class MainActivity : AppCompatActivity() {
             title: String?
         ): String {
             return try {
-                val app = JianXingApp.instance
-                app.watchRequestsStore.create(
+                JianXingApp.instance.watchRequestsStore.create(
                     url = url.orEmpty(),
                     reason = reason,
                     mid = mid?.takeIf { it.isNotBlank() },
@@ -553,9 +878,7 @@ class MainActivity : AppCompatActivity() {
                     aid = aid?.takeIf { it.isNotBlank() },
                     title = title?.takeIf { it.isNotBlank() }
                 )
-                runOnUiThread {
-                    Toast.makeText(this@MainActivity, "已提交访问申请", Toast.LENGTH_SHORT).show()
-                }
+                runOnUiThread { toast("已提交访问申请") }
                 "已提交申请，请让家长在「家长 → 访问申请」中处理。"
             } catch (e: Exception) {
                 "提交失败：${e.message}"
@@ -564,7 +887,7 @@ class MainActivity : AppCompatActivity() {
 
         @JavascriptInterface
         fun lookupSitePassword(): String {
-            val origin = originOf(lastCheckedUrl.orEmpty())
+            val origin = pageOrigin()
             if (origin.isBlank()) return ""
             val hit = JianXingApp.instance.sitePasswordsStore.lookup(origin) ?: return ""
             return JSONObject()
@@ -582,7 +905,40 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private class SimpleTextWatcher(private val after: () -> Unit) : android.text.TextWatcher {
+        override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+        override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+        override fun afterTextChanged(s: android.text.Editable?) { after() }
+    }
+
     companion object {
+        private const val MENU_NEW_TAB = 1
+        private const val MENU_CLOSE_TAB = 2
+        private const val MENU_TOGGLE_BM = 3
+        private const val MENU_MANAGE_BM = 4
+        private const val MENU_HOME = 5
+        private const val MENU_SET_CURRENT_HOME = 6
+        private const val MENU_SET_HOME = 7
+        private const val MENU_HISTORY = 8
+        private const val MENU_DOWNLOADS = 19
+        private const val MENU_FIND = 9
+        private const val MENU_PRINT = 10
+        private const val MENU_ZOOM = 11
+        private const val MENU_FULLSCREEN = 12
+        private const val MENU_PARENT = 13
+        private const val MENU_UPDATE = 14
+        private const val MENU_PASSWORDS = 15
+        private const val MENU_DEFAULT = 16
+        private const val MENU_BM_BAR = 17
+        private const val MENU_ABOUT = 18
+        private const val MENU_ZOOM_IN = 80
+        private const val MENU_ZOOM_OUT = 81
+        private const val MENU_ZOOM_RESET = 82
+
+        private const val REQ_NOTIFY = 4104
+
+        private fun newTabId(): String = "t_${UUID.randomUUID().toString().take(8)}"
+
         private const val SITE_PASSWORD_JS = """
             (function(){
               if (window.__jxPw) return;
@@ -689,27 +1045,6 @@ class MainActivity : AppCompatActivity() {
               attachEyes();
               new MutationObserver(attachEyes).observe(document.documentElement,{childList:true,subtree:true});
             })();
-        """
-
-        private const val HOME_HTML = """
-            <!DOCTYPE html><html lang="zh-CN"><head>
-            <meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-            <title>简行浏览器</title>
-            <style>
-              body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
-                font-family:"PingFang SC","Noto Sans SC",system-ui,sans-serif;
-                background:linear-gradient(165deg,#e8f0ec,#f3f6f4);
-                color:#1a2420;text-align:center;padding:24px}
-              .brand{color:#1b6b4a;font-weight:700;letter-spacing:.04em;margin:0 0 8px;font-size:14px}
-              h1{color:#1b6b4a;font-size:28px;margin:0 0 12px}
-              p{color:#5c6b64;margin:0;line-height:1.6}
-            </style></head><body>
-            <div>
-              <p class="brand">简行浏览器</p>
-              <h1>欢迎使用</h1>
-              <p><!--HINT--></p>
-            </div>
-            </body></html>
         """
     }
 }

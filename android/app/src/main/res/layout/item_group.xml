@@ -23,13 +23,31 @@
             android:textStyle="bold"
             android:textSize="15sp" />
 
-        <TextView
-            android:id="@+id/groupMeta"
+        <com.google.android.material.switchmaterial.SwitchMaterial
+            android:id="@+id/groupEnabled"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:text="开"
             android:textColor="@color/jx_muted"
             android:textSize="12sp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnEditGroup"
+            style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="编辑"
+            android:textColor="@color/jx_accent"
+            android:minWidth="0dp" />
     </LinearLayout>
+
+    <TextView
+        android:id="@+id/groupMeta"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:textColor="@color/jx_muted"
+        android:textSize="12sp" />
 
     <TextView
         android:id="@+id/groupHostsPreview"
@@ -41,11 +59,4 @@
         android:maxLines="2"
         android:ellipsize="end" />
 
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/btnEditGroup"
-        style="@style/Widget.MaterialComponents.Button.TextButton"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="end"
-        android:text="编辑" />
 </LinearLayout>

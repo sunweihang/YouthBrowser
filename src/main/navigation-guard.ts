@@ -191,6 +191,73 @@ async function enforceBilibili(
   return deny('bili_path_denied', 'B 站该域名路径未授权');
 }
 
+export function isDownloadAllowed(rawUrl: string, rules: RulesConfig): boolean {
+  const href = String(rawUrl || '').trim();
+  if (!href) return false;
+  if (href.startsWith('blob:') || href.startsWith('data:')) return true;
+  let url: URL;
+  try {
+    url = new URL(href);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
+  if (!rules.filteringEnabled) return true;
+  const host = normalizeHost(url.hostname);
+  if (isBiliSearchHost(host) && hasEnabledBiliExtension(rules)) return true;
+  if (isBiliStaticOrApi(host) && hasEnabledBiliExtension(rules)) return true;
+  return matchingGroups(host, rules).length > 0;
+}
+
+/** Let Chromium navigate so Content-Disposition downloads are not cancelled. */
+export function canLetNativeNavigate(
+  rawUrl: string,
+  rules: RulesConfig
+): boolean {
+  const href = String(rawUrl || '').trim();
+  if (!href) return false;
+  if (href.startsWith('blob:') || href.startsWith('data:')) return true;
+  if (href.startsWith('file:') && href.includes('/block/')) return true;
+
+  let url: URL;
+  try {
+    url = new URL(href);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
+  if (!rules.filteringEnabled) return true;
+
+  const host = normalizeHost(url.hostname);
+  if (host === 'b23.tv' || host === 'www.b23.tv') return false;
+  if (isBiliSearchHost(host) && hasEnabledBiliExtension(rules)) return true;
+  if (isBiliStaticOrApi(host) && hasEnabledBiliExtension(rules)) {
+    const matched = matchingGroups(host, rules);
+    const anyBili = rules.groups.filter(
+      (g) => g.enabled && g.extensionId === 'bilibili'
+    );
+    const covered = anyBili.some((g) => hostAllowed(host, g.hosts));
+    if (covered || matched.length > 0 || isBiliFamilyHost(host)) return true;
+  }
+
+  const matched = matchingGroups(host, rules);
+  if (matched.length === 0) return false;
+
+  const biliGroups = matched.filter((g) => g.extensionId === 'bilibili');
+  if (biliGroups.length > 0 && isBiliFamilyHost(host)) {
+    const pathname = url.pathname || '/';
+    const kind = isAllowedBiliPath(pathname);
+    if (kind === 'asset' || kind === 'search' || kind === 'home') return true;
+    if (kind === 'space') {
+      const mid = parseSpaceMid(pathname);
+      const mids = biliMidsFromGroups(biliGroups);
+      return Boolean(mid && mids.includes(mid));
+    }
+    return false;
+  }
+  return true;
+}
+
 export async function canNavigate(
   rawUrl: string,
   rules: RulesConfig

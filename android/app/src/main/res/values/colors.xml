@@ -1,12 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="jx_primary">#1B6B4A</color>
-    <color name="jx_primary_dark">#0F4A32</color>
-    <color name="jx_accent">#E8A317</color>
-    <color name="jx_bg">#F3F6F4</color>
-    <color name="jx_surface">#FFFFFF</color>
-    <color name="jx_text">#1A2420</color>
-    <color name="jx_muted">#5C6B64</color>
-    <color name="jx_danger">#C62828</color>
-    <color name="jx_toolbar">#E8F0EC</color>
+    <!-- Desktop chrome / parent / manager palette -->
+    <color name="jx_bg">#1A2332</color>
+    <color name="jx_bg2">#243044</color>
+    <color name="jx_panel">#1C2736</color>
+    <color name="jx_panel2">#152033</color>
+    <color name="jx_line">#3A4A63</color>
+    <color name="jx_text">#E8EEF7</color>
+    <color name="jx_muted">#9AABBF</color>
+    <color name="jx_accent">#3D8BFD</color>
+    <color name="jx_accent2">#2F6FD1</color>
+    <color name="jx_danger">#E85D5D</color>
+    <color name="jx_ok">#2F9E6B</color>
+    <color name="jx_star">#F0C14B</color>
+    <color name="jx_tab_active">#2C3C54</color>
+    <color name="jx_surface">#1C2736</color>
+    <color name="jx_toolbar">#243044</color>
+    <color name="jx_primary">#3D8BFD</color>
+    <color name="jx_primary_dark">#1A2332</color>
+    <color name="jx_on_accent">#FFFFFF</color>
 </resources>

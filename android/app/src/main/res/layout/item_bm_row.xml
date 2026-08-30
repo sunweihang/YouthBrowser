@@ -4,15 +4,16 @@
     android:layout_height="wrap_content"
     android:orientation="horizontal"
     android:gravity="center_vertical"
-    android:padding="8dp">
+    android:padding="8dp"
+    android:background="@drawable/bg_row_selectable">
 
     <TextView
-        android:id="@+id/histTime"
-        android:layout_width="48dp"
+        android:id="@+id/rowIcon"
+        android:layout_width="24dp"
         android:layout_height="wrap_content"
+        android:text="☆"
         android:textColor="@color/jx_muted"
-        android:textSize="12sp"
-        android:fontFamily="sans-serif-medium" />
+        android:textSize="14sp" />
 
     <LinearLayout
         android:layout_width="0dp"
@@ -22,7 +23,7 @@
         android:paddingStart="8dp">
 
         <TextView
-            android:id="@+id/histTitle"
+            android:id="@+id/rowTitle"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:textColor="@color/jx_text"
@@ -32,7 +33,7 @@
             android:ellipsize="end" />
 
         <TextView
-            android:id="@+id/histUrl"
+            android:id="@+id/rowMeta"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:textColor="@color/jx_muted"
@@ -40,13 +41,4 @@
             android:maxLines="1"
             android:ellipsize="end" />
     </LinearLayout>
-
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/histDelete"
-        style="@style/Jx.FindBtn"
-        android:layout_width="wrap_content"
-        android:layout_height="28dp"
-        android:text="@string/remove"
-        android:textColor="@color/jx_danger"
-        android:visibility="gone" />
 </LinearLayout>

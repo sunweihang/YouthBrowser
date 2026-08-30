@@ -3,6 +3,7 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:name=".JianXingApp"
@@ -46,10 +47,28 @@
             android:parentActivityName=".ui.MainActivity" />
 
         <activity
+            android:name=".ui.DownloadsActivity"
+            android:exported="false"
+            android:label="@string/downloads_title"
+            android:parentActivityName=".ui.MainActivity" />
+
+        <activity
             android:name=".ui.ParentActivity"
             android:exported="false"
             android:label="@string/parent_title"
             android:parentActivityName=".ui.MainActivity"
             android:windowSoftInputMode="adjustResize" />
+
+        <activity
+            android:name=".ui.PasswordsActivity"
+            android:exported="false"
+            android:label="@string/passwords_title"
+            android:parentActivityName=".ui.MainActivity" />
+
+        <activity
+            android:name=".ui.UpdateActivity"
+            android:exported="false"
+            android:label="@string/update_title"
+            android:parentActivityName=".ui.MainActivity" />
     </application>
 </manifest>

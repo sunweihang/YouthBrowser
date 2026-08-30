@@ -1,11 +1,14 @@
 # 简行浏览器 Android
 
-青少年家长控制浏览器（配套 Electron Windows 版），包名 `com.jianxing.browser`，版本 **1.1.27** (versionCode 27)。
+青少年家长控制浏览器（配套 Electron Windows 版），包名 `com.jianxing.browser`，版本 **1.1.28** (versionCode 28)。
 
-目标：与 Windows Electron 客户端在家长控制、规则、访问申请、账号同步与收藏夹上尽量对齐。
+目标：与 Windows Electron 客户端在界面与功能上对齐。
 
-## 功能（与 Windows 1.1.25 对齐）
+## 功能（与 Windows 桌面版对齐）
 
+- 深色 chrome：标签栏、后退/前进/刷新、胶囊地址栏、收藏星标、汉堡菜单
+- 多标签、查找栏、主页栏、保存密码栏、书签工具栏（含文件夹）
+- 菜单：新建/关闭标签、主页、查找、打印、缩放、全屏、家长、更新、密码、默认浏览器
 - WebView 浏览器：地址栏、后退/前进/刷新、书签星标、书签工具栏芯片
 - 家长密码：与 Electron 相同的 scrypt 哈希（`scrypt$salt$hash`，N=16384,r=8,p=1,keylen=64）
 - 本地规则 CRUD：配置组 / hosts / B 站扩展 `allowedMids`

@@ -1,18 +1,90 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.JianXingBrowser" parent="Theme.MaterialComponents.Light.NoActionBar">
-        <item name="colorPrimary">@color/jx_primary</item>
-        <item name="colorPrimaryDark">@color/jx_primary_dark</item>
+    <style name="Theme.JianXingBrowser" parent="Theme.MaterialComponents.NoActionBar">
+        <item name="colorPrimary">@color/jx_accent</item>
+        <item name="colorPrimaryDark">@color/jx_bg</item>
+        <item name="colorPrimaryVariant">@color/jx_bg2</item>
         <item name="colorAccent">@color/jx_accent</item>
-        <item name="android:statusBarColor">@color/jx_primary_dark</item>
+        <item name="colorSecondary">@color/jx_accent</item>
+        <item name="colorOnPrimary">@color/jx_on_accent</item>
+        <item name="colorSurface">@color/jx_surface</item>
+        <item name="colorOnSurface">@color/jx_text</item>
+        <item name="android:statusBarColor">@color/jx_bg</item>
+        <item name="android:navigationBarColor">@color/jx_bg</item>
         <item name="android:windowBackground">@color/jx_bg</item>
         <item name="android:textColorPrimary">@color/jx_text</item>
+        <item name="android:textColorSecondary">@color/jx_muted</item>
+        <item name="android:textColorHint">@color/jx_muted</item>
+        <item name="android:editTextColor">@color/jx_text</item>
+        <item name="materialButtonStyle">@style/Jx.Button</item>
+        <item name="materialAlertDialogTheme">@style/Jx.Dialog</item>
+        <item name="popupMenuStyle">@style/Jx.PopupMenu</item>
     </style>
 
-    <style name="Jx.ToolbarButton" parent="Widget.MaterialComponents.Button.TextButton">
-        <item name="android:minWidth">40dp</item>
-        <item name="android:minHeight">40dp</item>
-        <item name="android:padding">4dp</item>
-        <item name="android:textColor">@color/jx_primary_dark</item>
+    <style name="Jx.Dialog" parent="ThemeOverlay.MaterialComponents.MaterialAlertDialog">
+        <item name="android:background">@color/jx_panel</item>
+        <item name="colorSurface">@color/jx_panel</item>
+        <item name="android:textColorPrimary">@color/jx_text</item>
+        <item name="android:textColor">@color/jx_text</item>
+    </style>
+
+    <style name="Jx.PopupMenu" parent="Widget.MaterialComponents.PopupMenu">
+        <item name="android:popupBackground">@color/jx_bg2</item>
+    </style>
+
+    <style name="Jx.Button" parent="Widget.MaterialComponents.Button">
+        <item name="backgroundTint">@color/jx_accent</item>
+        <item name="android:textColor">@color/jx_on_accent</item>
+        <item name="cornerRadius">8dp</item>
+    </style>
+
+    <style name="Jx.Button.Outlined" parent="Widget.MaterialComponents.Button.OutlinedButton">
+        <item name="strokeColor">@color/jx_line</item>
+        <item name="android:textColor">@color/jx_text</item>
+        <item name="backgroundTint">@color/jx_bg</item>
+        <item name="cornerRadius">8dp</item>
+    </style>
+
+    <style name="Jx.IconBtn" parent="Widget.MaterialComponents.Button.OutlinedButton">
+        <item name="android:minWidth">32dp</item>
+        <item name="android:minHeight">32dp</item>
+        <item name="android:insetLeft">0dp</item>
+        <item name="android:insetRight">0dp</item>
+        <item name="android:insetTop">0dp</item>
+        <item name="android:insetBottom">0dp</item>
+        <item name="android:padding">0dp</item>
+        <item name="strokeColor">@color/jx_line</item>
+        <item name="android:textColor">@color/jx_text</item>
+        <item name="backgroundTint">@color/jx_bg</item>
+        <item name="cornerRadius">8dp</item>
+        <item name="android:textSize">14sp</item>
+    </style>
+
+    <style name="Jx.ChipBtn" parent="Widget.MaterialComponents.Button.OutlinedButton">
+        <item name="android:minHeight">26dp</item>
+        <item name="android:minWidth">0dp</item>
+        <item name="android:insetTop">0dp</item>
+        <item name="android:insetBottom">0dp</item>
+        <item name="android:insetLeft">0dp</item>
+        <item name="android:insetRight">0dp</item>
+        <item name="android:paddingLeft">10dp</item>
+        <item name="android:paddingRight">6dp</item>
+        <item name="android:textSize">12sp</item>
+        <item name="android:textColor">@color/jx_text</item>
+        <item name="strokeColor">@color/jx_line</item>
+        <item name="backgroundTint">@color/jx_bg2</item>
+        <item name="cornerRadius">999dp</item>
+    </style>
+
+    <style name="Jx.FindBtn" parent="Widget.MaterialComponents.Button.OutlinedButton">
+        <item name="android:minHeight">30dp</item>
+        <item name="android:minWidth">0dp</item>
+        <item name="android:insetTop">0dp</item>
+        <item name="android:insetBottom">0dp</item>
+        <item name="strokeColor">@color/jx_line</item>
+        <item name="android:textColor">@color/jx_text</item>
+        <item name="backgroundTint">@color/jx_bg</item>
+        <item name="cornerRadius">8dp</item>
+        <item name="android:textSize">12sp</item>
     </style>
 </resources>

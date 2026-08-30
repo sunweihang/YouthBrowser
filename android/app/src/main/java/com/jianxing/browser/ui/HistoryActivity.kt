@@ -10,23 +10,20 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
 import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.isVisible
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import com.google.android.material.button.MaterialButton
 import com.jianxing.browser.JianXingApp
 import com.jianxing.browser.R
 import com.jianxing.browser.databinding.ActivityHistoryBinding
 import com.jianxing.browser.model.HistoryEntry
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import java.util.Calendar
 
 class HistoryActivity : AppCompatActivity() {
     private lateinit var binding: ActivityHistoryBinding
     private lateinit var adapter: HistoryAdapter
-    private val timeFmt = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
     private var canManage = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -34,8 +31,8 @@ class HistoryActivity : AppCompatActivity() {
         binding = ActivityHistoryBinding.inflate(layoutInflater)
         setContentView(binding.root)
         canManage = intent.getBooleanExtra(EXTRA_UNLOCKED, false)
+        binding.appVersion.text = "v${versionName()}"
         adapter = HistoryAdapter(
-            formatTime = { timeFmt.format(Date(it)) },
             canDelete = canManage,
             onOpen = { entry ->
                 setResult(Activity.RESULT_OK, Intent().putExtra(EXTRA_URL, entry.url))
@@ -50,13 +47,19 @@ class HistoryActivity : AppCompatActivity() {
         )
         binding.historyList.layoutManager = LinearLayoutManager(this)
         binding.historyList.adapter = adapter
-        binding.btnCloseHistory.setOnClickListener { finish() }
         binding.btnClearHistory.isVisible = canManage
         binding.btnClearHistory.setOnClickListener {
             if (!canManage) return@setOnClickListener
-            JianXingApp.instance.historyStore.clear()
-            Toast.makeText(this, "已清空", Toast.LENGTH_SHORT).show()
-            refresh()
+            AlertDialog.Builder(this)
+                .setTitle("清空全部")
+                .setMessage("确定清空全部浏览历史？此操作不可恢复。")
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(R.string.history_clear) { _, _ ->
+                    JianXingApp.instance.historyStore.clear()
+                    Toast.makeText(this, "已清空历史记录", Toast.LENGTH_SHORT).show()
+                    refresh()
+                }
+                .show()
         }
         binding.historySearch.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
@@ -69,57 +72,111 @@ class HistoryActivity : AppCompatActivity() {
     private fun refresh() {
         val q = binding.historySearch.text?.toString().orEmpty()
         val items = JianXingApp.instance.historyStore.list(q)
-        adapter.submit(items)
+        adapter.submit(groupByDay(items))
         binding.historyEmpty.isVisible = items.isEmpty()
         binding.historyList.isVisible = items.isNotEmpty()
     }
 
+    private fun versionName(): String = try {
+        packageManager.getPackageInfo(packageName, 0).versionName ?: "—"
+    } catch (_: Exception) { "—" }
+
     private class HistoryAdapter(
-        private val formatTime: (Long) -> String,
         private val canDelete: Boolean,
         private val onOpen: (HistoryEntry) -> Unit,
         private val onDelete: (HistoryEntry) -> Unit
-    ) : RecyclerView.Adapter<HistoryAdapter.VH>() {
-        private var items: List<HistoryEntry> = emptyList()
+    ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
+        private var rows: List<Row> = emptyList()
 
-        fun submit(list: List<HistoryEntry>) {
-            items = list
+        fun submit(list: List<Row>) {
+            rows = list
             notifyDataSetChanged()
         }
 
-        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
-            val v = LayoutInflater.from(parent.context)
-                .inflate(R.layout.item_history, parent, false)
-            return VH(v)
-        }
+        override fun getItemViewType(position: Int) = if (rows[position] is Row.Day) 0 else 1
 
-        override fun getItemCount(): Int = items.size
-
-        override fun onBindViewHolder(holder: VH, position: Int) {
-            val item = items[position]
-            holder.title.text = item.title
-            holder.time.text = formatTime(item.visitedAt)
-            holder.url.text = item.url
-            holder.open.setOnClickListener { onOpen(item) }
-            holder.delete.isVisible = canDelete
-            holder.delete.setOnClickListener {
-                if (canDelete) onDelete(item)
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
+            return if (viewType == 0) {
+                DayVH(LayoutInflater.from(parent.context).inflate(R.layout.item_day_label, parent, false))
+            } else {
+                ItemVH(LayoutInflater.from(parent.context).inflate(R.layout.item_history, parent, false))
             }
-            holder.itemView.setOnClickListener { onOpen(item) }
         }
 
-        class VH(v: View) : RecyclerView.ViewHolder(v) {
+        override fun getItemCount() = rows.size
+
+        override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
+            when (val row = rows[position]) {
+                is Row.Day -> (holder as DayVH).label.text = row.label
+                is Row.Item -> {
+                    val h = holder as ItemVH
+                    val item = row.entry
+                    h.title.text = item.title.ifBlank { item.host.ifBlank { item.url } }
+                    h.url.text = item.host
+                    h.time.text = formatClock(item.visitedAt)
+                    h.delete.isVisible = canDelete
+                    h.delete.setOnClickListener { if (canDelete) onDelete(item) }
+                    h.itemView.setOnClickListener { onOpen(item) }
+                }
+            }
+        }
+
+        class DayVH(v: View) : RecyclerView.ViewHolder(v) {
+            val label: TextView = v.findViewById(R.id.dayLabel)
+        }
+
+        class ItemVH(v: View) : RecyclerView.ViewHolder(v) {
             val title: TextView = v.findViewById(R.id.histTitle)
             val time: TextView = v.findViewById(R.id.histTime)
             val url: TextView = v.findViewById(R.id.histUrl)
-            val open: MaterialButton = v.findViewById(R.id.histOpen)
-            val delete: MaterialButton = v.findViewById(R.id.histDelete)
+            val delete: View = v.findViewById(R.id.histDelete)
         }
+    }
+
+    sealed class Row {
+        data class Day(val label: String) : Row()
+        data class Item(val entry: HistoryEntry) : Row()
     }
 
     companion object {
         const val REQ_OPEN = 4102
         const val EXTRA_URL = "url"
         const val EXTRA_UNLOCKED = "unlocked"
+
+        fun groupByDay(entries: List<HistoryEntry>): List<Row> {
+            val out = mutableListOf<Row>()
+            var last = ""
+            for (item in entries) {
+                val key = dayKey(item.visitedAt)
+                if (key != last) {
+                    last = key
+                    out.add(Row.Day(dayLabel(item.visitedAt)))
+                }
+                out.add(Row.Item(item))
+            }
+            return out
+        }
+
+        fun formatClock(ts: Long): String {
+            val c = Calendar.getInstance().apply { timeInMillis = ts }
+            return "%02d:%02d".format(c.get(Calendar.HOUR_OF_DAY), c.get(Calendar.MINUTE))
+        }
+
+        private fun dayKey(ts: Long): String {
+            val c = Calendar.getInstance().apply { timeInMillis = ts }
+            return "%04d-%02d-%02d".format(
+                c.get(Calendar.YEAR), c.get(Calendar.MONTH) + 1, c.get(Calendar.DAY_OF_MONTH)
+            )
+        }
+
+        fun dayLabel(ts: Long): String {
+            val c = Calendar.getInstance().apply { timeInMillis = ts }
+            val today = Calendar.getInstance()
+            val yest = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -1) }
+            val key = dayKey(ts)
+            if (key == dayKey(today.timeInMillis)) return "今天"
+            if (key == dayKey(yest.timeInMillis)) return "昨天"
+            return "${c.get(Calendar.YEAR)}年${c.get(Calendar.MONTH) + 1}月${c.get(Calendar.DAY_OF_MONTH)}日"
+        }
     }
 }

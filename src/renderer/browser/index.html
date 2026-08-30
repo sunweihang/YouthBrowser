@@ -20,6 +20,10 @@
       <input id="urlInput" type="text" spellcheck="false" autocomplete="off" placeholder="输入已授权的网址" />
     </form>
     <button type="button" class="icon-btn star-btn" id="bookmarkBtn" title="收藏本页">☆</button>
+    <button type="button" class="icon-btn menu-btn" id="downloadsBtn" title="下载" aria-label="下载">
+      ↓
+      <span class="update-badge hidden" id="downloadsBadge"></span>
+    </button>
     <button type="button" class="icon-btn menu-btn" id="menuBtn" title="打开菜单" aria-label="打开菜单">
       <span class="menu-icon" aria-hidden="true"></span>
       <span class="update-badge hidden" id="updateBadge"></span>
@@ -43,6 +47,14 @@
     <button type="submit" class="primary" id="homepageSave">保存</button>
     <button type="button" class="update-close" id="homepageClose" title="关闭">×</button>
   </form>
+  <div class="find-bar hidden" id="downloadBar">
+    <span class="find-label" id="downloadBarText">下载</span>
+    <span class="find-count" id="downloadBarMeta"></span>
+    <button type="button" class="primary" id="downloadBarOpen">打开</button>
+    <button type="button" id="downloadBarShow">文件夹</button>
+    <button type="button" id="downloadBarList">查看全部</button>
+    <button type="button" class="update-close" id="downloadBarClose" title="关闭">×</button>
+  </div>
   <div class="find-bar hidden" id="findBar">
     <label class="find-label" for="findInput">查找</label>
     <input id="findInput" type="text" spellcheck="false" autocomplete="off" placeholder="在页面中查找" />

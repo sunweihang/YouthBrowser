@@ -6,179 +6,400 @@
     android:orientation="vertical"
     android:background="@color/jx_bg">
 
+    <!-- Tab strip = desktop .chrome -->
+    <LinearLayout
+        android:id="@+id/chrome"
+        android:layout_width="match_parent"
+        android:layout_height="40dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
+        android:paddingTop="4dp"
+        android:background="@color/jx_bg">
+
+        <HorizontalScrollView
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:scrollbars="none"
+            android:fillViewport="false">
+
+            <LinearLayout
+                android:id="@+id/tabsBar"
+                android:layout_width="wrap_content"
+                android:layout_height="match_parent"
+                android:orientation="horizontal"
+                android:gravity="bottom" />
+        </HorizontalScrollView>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnNewTab"
+            style="@style/Jx.IconBtn"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:layout_marginStart="6dp"
+            android:text="+"
+            android:textSize="16sp"
+            android:contentDescription="@string/menu_new_tab" />
+    </LinearLayout>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="@color/jx_line" />
+
+    <!-- Toolbar -->
     <LinearLayout
         android:id="@+id/toolbar"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:background="@color/jx_toolbar"
-        android:paddingTop="8dp"
-        android:paddingBottom="6dp"
-        android:elevation="2dp">
+        android:layout_height="48dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="10dp"
+        android:paddingEnd="10dp"
+        android:background="@color/jx_toolbar">
 
-        <!-- Row 1: navigation + URL -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:paddingHorizontal="4dp">
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnBack"
+            style="@style/Jx.IconBtn"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:text="←"
+            android:contentDescription="@string/back" />
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnBack"
-                style="@style/Jx.ToolbarButton"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
-                android:insetLeft="0dp"
-                android:insetRight="0dp"
-                android:text="←"
-                android:textSize="18sp" />
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnForward"
+            style="@style/Jx.IconBtn"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:layout_marginStart="6dp"
+            android:text="→"
+            android:contentDescription="@string/forward" />
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnForward"
-                style="@style/Jx.ToolbarButton"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
-                android:insetLeft="0dp"
-                android:insetRight="0dp"
-                android:text="→"
-                android:textSize="18sp" />
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnReload"
+            style="@style/Jx.IconBtn"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:layout_marginStart="6dp"
+            android:text="↻"
+            android:contentDescription="@string/reload" />
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnReload"
-                style="@style/Jx.ToolbarButton"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
-                android:insetLeft="0dp"
-                android:insetRight="0dp"
-                android:text="↻"
-                android:textSize="18sp" />
+        <EditText
+            android:id="@+id/urlBar"
+            android:layout_width="0dp"
+            android:layout_height="34dp"
+            android:layout_weight="1"
+            android:layout_marginStart="6dp"
+            android:background="@drawable/bg_url_pill"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:hint="@string/url_hint"
+            android:textColorHint="@color/jx_muted"
+            android:textColor="@color/jx_text"
+            android:textSize="13sp"
+            android:imeOptions="actionGo"
+            android:inputType="textUri"
+            android:maxLines="1"
+            android:singleLine="true"
+            android:importantForAutofill="no" />
 
-            <com.google.android.material.textfield.TextInputLayout
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:hint="@string/url_hint"
-                app:boxBackgroundMode="outline"
-                app:boxCornerRadiusBottomEnd="10dp"
-                app:boxCornerRadiusBottomStart="10dp"
-                app:boxCornerRadiusTopEnd="10dp"
-                app:boxCornerRadiusTopStart="10dp"
-                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox.Dense">
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnStar"
+            style="@style/Jx.IconBtn"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:layout_marginStart="6dp"
+            android:text="☆"
+            android:contentDescription="@string/bookmark" />
 
-                <com.google.android.material.textfield.TextInputEditText
-                    android:id="@+id/urlBar"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:imeOptions="actionGo"
-                    android:inputType="textUri"
-                    android:maxLines="1"
-                    android:singleLine="true"
-                    android:textSize="14sp" />
-            </com.google.android.material.textfield.TextInputLayout>
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnDownloads"
+            style="@style/Jx.IconBtn"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:layout_marginStart="6dp"
+            android:text="↓"
+            android:contentDescription="@string/menu_downloads" />
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnGo"
-                style="@style/Widget.MaterialComponents.Button"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="4dp"
-                android:minWidth="56dp"
-                android:text="@string/go" />
-        </LinearLayout>
-
-        <!-- Row 2: star + Firefox-style overflow menu -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:paddingHorizontal="8dp"
-            android:paddingTop="4dp">
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnStar"
-                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-                android:layout_width="0dp"
-                android:layout_height="40dp"
-                android:layout_weight="1"
-                android:text="☆ 收藏"
-                android:textSize="13sp"
-                android:contentDescription="@string/bookmark" />
+        <FrameLayout
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:layout_marginStart="6dp">
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnMenu"
-                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-                android:layout_width="0dp"
-                android:layout_height="40dp"
-                android:layout_weight="1"
-                android:layout_marginStart="6dp"
-                android:text="☰ 菜单"
-                android:textSize="13sp"
+                style="@style/Jx.IconBtn"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:text="☰"
                 android:contentDescription="@string/menu" />
-        </LinearLayout>
-
-        <!-- Row 3: bookmarks bar — always shown -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:paddingHorizontal="10dp"
-            android:paddingTop="6dp">
 
             <TextView
+                android:id="@+id/updateBadge"
                 android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/bookmarks_label"
-                android:textColor="@color/jx_primary_dark"
+                android:layout_height="16dp"
+                android:layout_gravity="top|end"
+                android:minWidth="16dp"
+                android:paddingStart="4dp"
+                android:paddingEnd="4dp"
+                android:gravity="center"
+                android:text="!"
+                android:textColor="#FFFFFF"
+                android:textSize="10sp"
                 android:textStyle="bold"
-                android:textSize="13sp"
-                android:paddingEnd="6dp" />
-
-            <HorizontalScrollView
-                android:id="@+id/bookmarksScroll"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:scrollbars="none">
-
-                <LinearLayout
-                    android:id="@+id/bookmarksBar"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical" />
-            </HorizontalScrollView>
-        </LinearLayout>
-
-        <TextView
-            android:id="@+id/bookmarksEmpty"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:paddingHorizontal="10dp"
-            android:paddingTop="2dp"
-            android:paddingBottom="2dp"
-            android:text="@string/bookmarks_empty_hint"
-            android:textColor="@color/jx_muted"
-            android:textSize="12sp"
-            android:visibility="gone" />
-
-        <ProgressBar
-            android:id="@+id/progress"
-            style="?android:attr/progressBarStyleHorizontal"
-            android:layout_width="match_parent"
-            android:layout_height="3dp"
-            android:layout_marginTop="2dp"
-            android:indeterminate="false"
-            android:max="100"
-            android:progress="0"
-            android:visibility="gone" />
+                android:background="@drawable/bg_badge"
+                android:visibility="gone" />
+        </FrameLayout>
     </LinearLayout>
 
-    <WebView
-        android:id="@+id/webView"
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="@color/jx_line" />
+
+    <!-- Bookmarks bar -->
+    <HorizontalScrollView
+        android:id="@+id/bookmarksScroll"
+        android:layout_width="match_parent"
+        android:layout_height="36dp"
+        android:scrollbars="none"
+        android:background="@color/jx_bg">
+
+        <LinearLayout
+            android:id="@+id/bookmarksBar"
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp" />
+    </HorizontalScrollView>
+
+    <View
+        android:id="@+id/bookmarksBarLine"
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="@color/jx_line" />
+
+    <!-- Password offer bar -->
+    <LinearLayout
+        android:id="@+id/passwordBar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:minHeight="40dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="12dp"
+        android:paddingEnd="8dp"
+        android:background="@color/jx_bg2"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/passwordBarText"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textColor="@color/jx_muted"
+            android:textSize="12sp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/passwordSave"
+            android:layout_width="wrap_content"
+            android:layout_height="30dp"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:minWidth="0dp"
+            android:text="@string/save"
+            android:textSize="12sp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/passwordDismiss"
+            style="@style/Jx.FindBtn"
+            android:layout_width="wrap_content"
+            android:layout_height="30dp"
+            android:layout_marginStart="6dp"
+            android:text="@string/dont_save" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/passwordClose"
+            style="@style/Jx.FindBtn"
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:layout_marginStart="6dp"
+            android:text="×" />
+    </LinearLayout>
+
+    <!-- Homepage bar -->
+    <LinearLayout
+        android:id="@+id/homepageBar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:minHeight="40dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="12dp"
+        android:paddingEnd="8dp"
+        android:background="@color/jx_bg2"
+        android:visibility="gone">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/homepage"
+            android:textColor="@color/jx_muted"
+            android:textSize="12sp" />
+
+        <EditText
+            android:id="@+id/homepageInput"
+            android:layout_width="0dp"
+            android:layout_height="30dp"
+            android:layout_weight="1"
+            android:layout_marginStart="8dp"
+            android:background="@drawable/bg_find_input"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:hint="@string/homepage_hint"
+            android:textColorHint="@color/jx_muted"
+            android:textColor="@color/jx_text"
+            android:textSize="13sp"
+            android:inputType="textUri"
+            android:maxLines="1"
+            android:importantForAutofill="no" />
+
+        <TextView
+            android:id="@+id/homepageError"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="6dp"
+            android:textColor="@color/jx_danger"
+            android:textSize="12sp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/homepageUseCurrent"
+            style="@style/Jx.FindBtn"
+            android:layout_width="wrap_content"
+            android:layout_height="30dp"
+            android:layout_marginStart="6dp"
+            android:text="@string/homepage_use_current" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/homepageClear"
+            style="@style/Jx.FindBtn"
+            android:layout_width="wrap_content"
+            android:layout_height="30dp"
+            android:layout_marginStart="4dp"
+            android:text="@string/homepage_clear" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/homepageSave"
+            android:layout_width="wrap_content"
+            android:layout_height="30dp"
+            android:layout_marginStart="4dp"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:minWidth="0dp"
+            android:text="@string/save"
+            android:textSize="12sp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/homepageClose"
+            style="@style/Jx.FindBtn"
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:layout_marginStart="4dp"
+            android:text="×" />
+    </LinearLayout>
+
+    <!-- Find bar -->
+    <LinearLayout
+        android:id="@+id/findBar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:minHeight="40dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="12dp"
+        android:paddingEnd="8dp"
+        android:background="@color/jx_bg2"
+        android:visibility="gone">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/find_label"
+            android:textColor="@color/jx_muted"
+            android:textSize="12sp" />
+
+        <EditText
+            android:id="@+id/findInput"
+            android:layout_width="0dp"
+            android:layout_height="30dp"
+            android:layout_weight="1"
+            android:layout_marginStart="8dp"
+            android:background="@drawable/bg_find_input"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:hint="@string/find_hint"
+            android:textColorHint="@color/jx_muted"
+            android:textColor="@color/jx_text"
+            android:textSize="13sp"
+            android:inputType="text"
+            android:imeOptions="actionSearch"
+            android:maxLines="1"
+            android:importantForAutofill="no" />
+
+        <TextView
+            android:id="@+id/findCount"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:minWidth="56dp"
+            android:textColor="@color/jx_muted"
+            android:textSize="12sp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/findPrev"
+            style="@style/Jx.IconBtn"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:layout_marginStart="6dp"
+            android:text="↑" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/findNext"
+            style="@style/Jx.IconBtn"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:layout_marginStart="4dp"
+            android:text="↓" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/findClose"
+            style="@style/Jx.FindBtn"
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:layout_marginStart="4dp"
+            android:text="×" />
+    </LinearLayout>
+
+    <ProgressBar
+        android:id="@+id/progress"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="3dp"
+        android:indeterminate="false"
+        android:max="100"
+        android:progress="0"
+        android:progressTint="@color/jx_accent"
+        android:progressBackgroundTint="@color/jx_line"
+        android:visibility="gone" />
+
+    <FrameLayout
+        android:id="@+id/webHost"
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1" />
+        android:layout_weight="1"
+        android:background="@color/jx_bg" />
 </LinearLayout>

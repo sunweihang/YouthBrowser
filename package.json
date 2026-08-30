@@ -1,6 +1,6 @@
 {
   "name": "jianxing-browser",
-  "version": "1.1.26",
+  "version": "1.1.29",
   "description": "简行浏览器：青少年专用，配置组白名单 + 站点扩展（含 B 站 UP）+ 收藏夹",
   "main": "dist/main/index.js",
   "author": "简行浏览器",
@@ -92,6 +92,9 @@
       "allowElevation": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico",
       "include": "build/installer.nsh"
     }
   },

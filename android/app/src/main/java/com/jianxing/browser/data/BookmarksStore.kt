@@ -37,12 +37,73 @@ class BookmarksStore(context: Context) {
         persist()
     }
 
+    fun snapshot(): List<BookmarkNode> = nodes.map { it.copy() }
+
+    fun listToolbar(): List<BookmarkNode> = childrenOf(TOOLBAR_ID)
+
     fun listToolbarBookmarks(): List<BookmarkNode> =
         childrenOf(TOOLBAR_ID).filter { it.type == "bookmark" }
 
     fun listAllBookmarks(): List<BookmarkNode> =
         nodes.filter { it.type == "bookmark" }
             .sortedWith(compareByDescending { it.createdAt })
+
+    fun listFolders(): List<BookmarkNode> =
+        nodes.filter { it.type == "folder" }
+            .sortedWith(compareBy({ if (it.id == TOOLBAR_ID) 0 else if (it.id == OTHER_ID) 1 else 2 }, { it.order }))
+
+    fun children(parentId: String): List<BookmarkNode> = childrenOf(parentId)
+
+    fun getNode(id: String): BookmarkNode? = nodes.find { it.id == id }
+
+    fun add(title: String, url: String, parentId: String = TOOLBAR_ID): BookmarkNode? =
+        addBookmark(title, url, parentId)
+
+    fun createFolder(title: String, parentId: String = TOOLBAR_ID): BookmarkNode? {
+        val parent = if (nodes.any { it.id == parentId && it.type == "folder" }) parentId else TOOLBAR_ID
+        val node = BookmarkNode(
+            id = newId("fld"),
+            type = "folder",
+            title = title.trim().ifBlank { "新建文件夹" },
+            url = null,
+            parentId = parent,
+            createdAt = System.currentTimeMillis(),
+            order = nextOrder(parent)
+        )
+        nodes.add(node)
+        persist()
+        return node
+    }
+
+    fun rename(id: String, title: String): Boolean {
+        if (id == TOOLBAR_ID || id == OTHER_ID) return false
+        val next = title.trim()
+        if (next.isEmpty()) return false
+        val idx = nodes.indexOfFirst { it.id == id }
+        if (idx < 0) return false
+        nodes[idx] = nodes[idx].copy(title = next)
+        persist()
+        return true
+    }
+
+    fun move(id: String, parentId: String): Boolean {
+        if (id == TOOLBAR_ID || id == OTHER_ID || id == parentId) return false
+        val node = nodes.find { it.id == id } ?: return false
+        val parent = nodes.find { it.id == parentId && it.type == "folder" } ?: return false
+        if (node.type == "folder") {
+            var walk: String? = parentId
+            val seen = mutableSetOf<String>()
+            while (walk != null && walk.isNotEmpty()) {
+                if (walk == id) return false
+                if (!seen.add(walk)) break
+                walk = nodes.find { it.id == walk }?.parentId
+            }
+        }
+        val idx = nodes.indexOfFirst { it.id == id }
+        nodes[idx] = node.copy(parentId = parent.id, order = nextOrder(parent.id))
+        persist()
+        return true
+    }
 
     fun removeBookmark(id: String): Boolean = remove(id)
 

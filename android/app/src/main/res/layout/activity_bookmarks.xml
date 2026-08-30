@@ -3,38 +3,218 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="@color/jx_bg"
-    android:padding="12dp">
+    android:background="@color/jx_bg">
 
-    <TextView
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="@string/bookmarks_manage"
-        android:textSize="20sp"
-        android:textStyle="bold"
-        android:textColor="@color/jx_text"
-        android:paddingBottom="8dp" />
+        android:orientation="vertical"
+        android:padding="12dp"
+        android:background="@color/jx_panel2">
 
-    <TextView
-        android:id="@+id/bookmarksManageEmpty"
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/app_name"
+                android:textColor="@color/jx_accent"
+                android:textSize="11sp"
+                android:textStyle="bold"
+                android:letterSpacing="0.08" />
+
+            <TextView
+                android:id="@+id/appVersion"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:textColor="@color/jx_muted"
+                android:textSize="11sp" />
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/bookmarks_manage"
+            android:textColor="@color/jx_text"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:paddingTop="2dp" />
+
+        <HorizontalScrollView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:scrollbars="none">
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnNewFolder"
+                    style="@style/Jx.FindBtn"
+                    android:layout_width="wrap_content"
+                    android:layout_height="34dp"
+                    android:text="@string/bm_new_folder" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnRename"
+                    style="@style/Jx.FindBtn"
+                    android:layout_width="wrap_content"
+                    android:layout_height="34dp"
+                    android:layout_marginStart="6dp"
+                    android:text="@string/bm_rename" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnMove"
+                    style="@style/Jx.FindBtn"
+                    android:layout_width="wrap_content"
+                    android:layout_height="34dp"
+                    android:layout_marginStart="6dp"
+                    android:text="@string/bm_move" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnDelete"
+                    style="@style/Jx.FindBtn"
+                    android:layout_width="wrap_content"
+                    android:layout_height="34dp"
+                    android:layout_marginStart="6dp"
+                    android:text="@string/bm_delete"
+                    android:textColor="@color/jx_danger" />
+            </LinearLayout>
+        </HorizontalScrollView>
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/syncBar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="@string/bookmarks_empty_hint"
-        android:textColor="@color/jx_muted"
-        android:padding="16dp"
-        android:visibility="gone" />
+        android:orientation="vertical"
+        android:padding="10dp"
+        android:background="@color/jx_panel">
 
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/bookmarksList"
+        <TextView
+            android:id="@+id/syncAccount"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="@color/jx_text"
+            android:textSize="12sp" />
+
+        <TextView
+            android:id="@+id/bmSyncMeta"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="@color/jx_muted"
+            android:textSize="12sp" />
+
+        <TextView
+            android:id="@+id/bmSyncStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="@color/jx_muted"
+            android:textSize="12sp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="6dp">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnPushBm"
+                style="@style/Jx.FindBtn"
+                android:layout_width="0dp"
+                android:layout_height="32dp"
+                android:layout_weight="1"
+                android:text="@string/bm_push" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnPullBm"
+                style="@style/Jx.FindBtn"
+                android:layout_width="0dp"
+                android:layout_height="32dp"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:text="@string/bm_pull" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1" />
+        android:layout_weight="1"
+        android:orientation="horizontal">
 
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/btnCloseBookmarks"
-        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="2"
+            android:orientation="vertical"
+            android:background="@color/jx_panel2"
+            android:padding="8dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/folders_title"
+                android:textColor="@color/jx_muted"
+                android:textSize="12sp"
+                android:paddingBottom="6dp" />
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/folderTree"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent" />
+        </LinearLayout>
+
+        <View
+            android:layout_width="1dp"
+            android:layout_height="match_parent"
+            android:background="@color/jx_line" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="3"
+            android:orientation="vertical"
+            android:padding="8dp">
+
+            <TextView
+                android:id="@+id/listTitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/content_title"
+                android:textColor="@color/jx_muted"
+                android:textSize="12sp"
+                android:paddingBottom="6dp" />
+
+            <TextView
+                android:id="@+id/emptyHint"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/bookmarks_empty_hint"
+                android:textColor="@color/jx_muted"
+                android:padding="12dp"
+                android:visibility="gone" />
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/itemList"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/status"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:text="@string/close" />
+        android:padding="8dp"
+        android:textColor="@color/jx_accent"
+        android:textSize="12sp"
+        android:background="@color/jx_panel2" />
 </LinearLayout>

@@ -45,30 +45,37 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="@string/history_title"
+                android:text="@string/downloads_title"
                 android:textColor="@color/jx_text"
                 android:textSize="18sp"
                 android:textStyle="bold" />
 
             <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnClearHistory"
+                android:id="@+id/btnOpenFolder"
                 style="@style/Jx.FindBtn"
                 android:layout_width="wrap_content"
                 android:layout_height="32dp"
-                android:text="@string/history_clear"
-                android:textColor="@color/jx_danger"
-                android:visibility="gone" />
+                android:text="@string/downloads_folder" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnClearDownloads"
+                style="@style/Jx.FindBtn"
+                android:layout_width="wrap_content"
+                android:layout_height="32dp"
+                android:layout_marginStart="6dp"
+                android:text="@string/downloads_clear"
+                android:textColor="@color/jx_danger" />
         </LinearLayout>
 
         <EditText
-            android:id="@+id/historySearch"
+            android:id="@+id/downloadsSearch"
             android:layout_width="match_parent"
             android:layout_height="34dp"
             android:layout_marginTop="8dp"
             android:background="@drawable/bg_find_input"
             android:paddingStart="12dp"
             android:paddingEnd="12dp"
-            android:hint="@string/history_search"
+            android:hint="@string/downloads_search"
             android:textColorHint="@color/jx_muted"
             android:textColor="@color/jx_text"
             android:textSize="13sp"
@@ -78,16 +85,16 @@
     </LinearLayout>
 
     <TextView
-        android:id="@+id/historyEmpty"
+        android:id="@+id/downloadsEmpty"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="@string/history_empty"
+        android:text="@string/downloads_empty"
         android:textColor="@color/jx_muted"
         android:padding="18dp"
         android:visibility="gone" />
 
     <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/historyList"
+        android:id="@+id/downloadsList"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"

@@ -13,3 +13,8 @@ JianXingBrowser-Setup-*.exe
 dist-tmp-nav.js
 *.jks
 android/keystore/
+android/.gradle/
+android/.idea/
+android/build/
+android/app/build/
+android/local.properties

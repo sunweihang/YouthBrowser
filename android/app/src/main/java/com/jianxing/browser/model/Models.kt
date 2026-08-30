@@ -22,6 +22,20 @@ data class RulesConfig(
     val groups: List<SiteGroup> = emptyList()
 )
 
+data class DownloadEntry(
+    val id: String,
+    val url: String,
+    val filename: String,
+    val filePath: String = "",
+    val mime: String = "",
+    val state: String = "progressing",
+    val receivedBytes: Long = 0,
+    val totalBytes: Long = 0,
+    val startedAt: Long = System.currentTimeMillis(),
+    val endedAt: Long? = null,
+    val systemId: Long = -1
+)
+
 data class HistoryEntry(
     val id: String,
     val url: String,

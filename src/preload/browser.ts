@@ -11,6 +11,11 @@ contextBridge.exposeInMainWorld('youthBrowser', {
   activateTab: (id: string) => ipcRenderer.invoke('shell:activateTab', id),
   openParent: () => ipcRenderer.invoke('shell:openParent'),
   openHistory: () => ipcRenderer.invoke('shell:openHistory'),
+  openDownloads: () => ipcRenderer.invoke('shell:openDownloads'),
+  savePage: () => ipcRenderer.invoke('shell:savePage'),
+  downloadOpen: (id: string) => ipcRenderer.invoke('downloads:open', id),
+  downloadShow: (id: string) => ipcRenderer.invoke('downloads:show', id),
+  downloadCancel: (id: string) => ipcRenderer.invoke('downloads:cancel', id),
   popupAppMenu: (x: number, y: number) =>
     ipcRenderer.invoke('shell:popupAppMenu', x, y),
   setChromeExtra: (extra: number) =>

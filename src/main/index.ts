@@ -19,10 +19,16 @@ import {
   buildBlockUrl,
   canNavigate,
   hostAllowed,
+  isDownloadAllowed,
 } from './navigation-guard';
+import { HistoryStore } from './history-store';
+import { DownloadsStore, type DownloadEntry } from './downloads-store';
+import {
+  DownloadsManager,
+  looksLikeDownloadUrl,
+} from './downloads-manager';
 import { extractMidFromInput, normalizeHomepage, RulesStore } from './rules-store';
 import { WatchRequestsStore } from './watch-requests-store';
-import { HistoryStore } from './history-store';
 import { SitePasswordsStore } from './site-passwords-store';
 import {
   extractLaunchUrl,
@@ -126,6 +132,7 @@ let mainWindow: BrowserWindow | null = null;
 let parentWindow: BrowserWindow | null = null;
 let bookmarksWindow: BrowserWindow | null = null;
 let historyWindow: BrowserWindow | null = null;
+let downloadsWindow: BrowserWindow | null = null;
 let updateWindow: BrowserWindow | null = null;
 let passwordsWindow: BrowserWindow | null = null;
 let rulesStore: RulesStore;
@@ -133,6 +140,8 @@ let bookmarksStore: BookmarksStore;
 let accountStore: AccountStore;
 let watchRequestsStore: WatchRequestsStore;
 let historyStore: HistoryStore;
+let downloadsStore: DownloadsStore;
+let downloadsManager: DownloadsManager;
 let sitePasswordsStore: SitePasswordsStore;
 let syncClient: SyncClient;
 let tabs: TabState[] = [];
@@ -200,6 +209,22 @@ function notifyHistory(): void {
     historyWindow.webContents.send('history:changed', {
       entries: historyStore.list(),
       count: historyStore.count(),
+    });
+  }
+}
+
+function notifyDownloads(latest?: DownloadEntry): void {
+  const payload = {
+    ...downloadsManager.snapshot(),
+    latest: latest || null,
+  };
+  if (downloadsWindow && !downloadsWindow.isDestroyed()) {
+    downloadsWindow.webContents.send('downloads:changed', payload);
+  }
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    sendShellCommand('downloadChanged', {
+      latest: latest || null,
+      activeCount: payload.activeCount,
     });
   }
 }
@@ -405,6 +430,13 @@ function attachGuards(tab: TabState): void {
   const wc = tab.view.webContents;
 
   wc.setWindowOpenHandler(({ url }) => {
+    if (
+      looksLikeDownloadUrl(url) &&
+      isDownloadAllowed(url, rulesStore.getRaw())
+    ) {
+      downloadsManager.startFromUrl(url, wc.getURL() || '');
+      return { action: 'deny' };
+    }
     void guardedLoad(tab, url);
     return { action: 'deny' };
   });
@@ -412,6 +444,13 @@ function attachGuards(tab: TabState): void {
   wc.on('will-navigate', (event, url) => {
     if (url.startsWith('file:') && url.includes('/block/')) return;
     event.preventDefault();
+    if (
+      looksLikeDownloadUrl(url) &&
+      isDownloadAllowed(url, rulesStore.getRaw())
+    ) {
+      downloadsManager.startFromUrl(url, wc.getURL() || '');
+      return;
+    }
     void guardedLoad(tab, url);
   });
 
@@ -814,6 +853,45 @@ function openHistoryWindow(): void {
   });
 }
 
+function openDownloadsWindow(): void {
+  if (downloadsWindow && !downloadsWindow.isDestroyed()) {
+    downloadsWindow.focus();
+    downloadsWindow.webContents.send(
+      'downloads:changed',
+      downloadsManager.snapshot()
+    );
+    return;
+  }
+
+  downloadsWindow = new BrowserWindow({
+    width: 860,
+    height: 640,
+    minWidth: 640,
+    minHeight: 420,
+    parent: mainWindow ?? undefined,
+    modal: false,
+    title: `${APP_NAME} · 下载`,
+    webPreferences: {
+      preload: distPath('preload', 'downloads.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  downloadsWindow.setMenuBarVisibility(false);
+  void downloadsWindow.loadURL(rendererFile('downloads', 'index.html'));
+  downloadsWindow.on('closed', () => {
+    downloadsWindow = null;
+  });
+}
+
+function saveCurrentPage(): void {
+  const tab = activeTab();
+  const url = tab?.url || '';
+  if (!tab) return;
+  downloadsManager.startUrl(tab.view.webContents, url);
+}
+
 function popupAppMenu(x: number, y: number): void {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   const tab = activeTab();
@@ -867,6 +945,11 @@ function popupAppMenu(x: number, y: number): void {
       label: '历史记录',
       accelerator: 'CmdOrCtrl+H',
       click: () => openHistoryWindow(),
+    },
+    {
+      label: '下载',
+      accelerator: 'CmdOrCtrl+J',
+      click: () => openDownloadsWindow(),
     },
     { type: 'separator' },
     {
@@ -969,6 +1052,11 @@ function buildAppMenuTemplate(): MenuItemConstructorOptions[] {
           },
         },
         { type: 'separator' },
+        {
+          label: '保存页面…',
+          accelerator: 'CmdOrCtrl+S',
+          click: () => saveCurrentPage(),
+        },
         {
           label: '打印…',
           accelerator: 'CmdOrCtrl+P',
@@ -1095,6 +1183,11 @@ function buildAppMenuTemplate(): MenuItemConstructorOptions[] {
           accelerator: 'CmdOrCtrl+H',
           click: () => openHistoryWindow(),
         },
+        {
+          label: '下载',
+          accelerator: 'CmdOrCtrl+J',
+          click: () => openDownloadsWindow(),
+        },
       ],
     },
     {
@@ -1125,6 +1218,11 @@ function buildAppMenuTemplate(): MenuItemConstructorOptions[] {
         {
           label: '将当前页设为主页',
           click: () => setCurrentPageAsHomepage(),
+        },
+        {
+          label: '下载',
+          accelerator: 'CmdOrCtrl+J',
+          click: () => openDownloadsWindow(),
         },
         {
           label: '已保存的密码',
@@ -1306,6 +1404,16 @@ function registerIpc(): void {
     return { ok: true };
   });
 
+  ipcMain.handle('shell:openDownloads', () => {
+    openDownloadsWindow();
+    return { ok: true };
+  });
+
+  ipcMain.handle('shell:savePage', () => {
+    saveCurrentPage();
+    return { ok: true };
+  });
+
   ipcMain.handle('shell:popupAppMenu', (_e, x: number, y: number) => {
     popupAppMenu(Number(x) || 0, Number(y) || 0);
     return { ok: true };
@@ -1452,6 +1560,32 @@ function registerIpc(): void {
     if (ok) notifyPasswordsChanged();
     return { ok };
   });
+
+  ipcMain.handle('downloads:list', (_e, query?: string) => ({
+    entries: downloadsManager.list(query),
+    count: downloadsManager.count(),
+    activeCount: downloadsManager.activeCount(),
+  }));
+  ipcMain.handle('downloads:open', (_e, id: string) =>
+    downloadsManager.open(String(id || ''))
+  );
+  ipcMain.handle('downloads:show', (_e, id: string) =>
+    downloadsManager.showInFolder(String(id || ''))
+  );
+  ipcMain.handle('downloads:cancel', (_e, id: string) =>
+    downloadsManager.cancel(String(id || ''))
+  );
+  ipcMain.handle('downloads:pause', (_e, id: string) =>
+    downloadsManager.pause(String(id || ''))
+  );
+  ipcMain.handle('downloads:resume', (_e, id: string) =>
+    downloadsManager.resume(String(id || ''))
+  );
+  ipcMain.handle('downloads:remove', (_e, id: string) =>
+    downloadsManager.remove(String(id || ''))
+  );
+  ipcMain.handle('downloads:clear', () => downloadsManager.clear());
+  ipcMain.handle('downloads:openFolder', () => downloadsManager.openFolder());
 
   ipcMain.handle('history:list', (_e, query?: string) => {
     return { ok: true, entries: historyStore.list(query), count: historyStore.count() };
@@ -2092,6 +2226,13 @@ app.whenReady().then(() => {
   accountStore = new AccountStore();
   watchRequestsStore = new WatchRequestsStore();
   historyStore = new HistoryStore();
+  downloadsStore = new DownloadsStore();
+  downloadsManager = new DownloadsManager({
+    store: downloadsStore,
+    getRules: () => rulesStore.getRaw(),
+    onChanged: (latest) => notifyDownloads(latest),
+  });
+  downloadsManager.attach(session.fromPartition('persist:youth'));
   sitePasswordsStore = new SitePasswordsStore();
   syncClient = new SyncClient(accountStore);
   loadChromePrefs();
