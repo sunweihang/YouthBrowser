@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>软件更新</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="card">
+    <p class="brand">简行浏览器</p>
+    <h1>软件更新</h1>
+    <div class="versions">
+      <div class="row">
+        <span>当前版本</span>
+        <strong id="updCurrent">—</strong>
+      </div>
+      <div class="row">
+        <span>最新版本</span>
+        <strong id="updLatest">—</strong>
+      </div>
+    </div>
+    <p class="msg" id="updMsg">—</p>
+    <div class="progress-wrap">
+      <div class="bar"><div class="fill" id="updProgressFill"></div></div>
+      <div class="progress-meta">
+        <span id="updPercent">0%</span>
+        <span id="updSize">—</span>
+      </div>
+    </div>
+    <p class="error hidden" id="updError"></p>
+    <div class="actions">
+      <button type="button" id="updCheckBtn">检查更新</button>
+      <button type="button" class="primary hidden" id="updInstallBtn">立即安装</button>
+    </div>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>

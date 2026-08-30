@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/jx_bg"
+    android:padding="12dp">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/bookmarks_manage"
+        android:textSize="20sp"
+        android:textStyle="bold"
+        android:textColor="@color/jx_text"
+        android:paddingBottom="8dp" />
+
+    <TextView
+        android:id="@+id/bookmarksManageEmpty"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/bookmarks_empty_hint"
+        android:textColor="@color/jx_muted"
+        android:padding="16dp"
+        android:visibility="gone" />
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/bookmarksList"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnCloseBookmarks"
+        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="@string/close" />
+</LinearLayout>

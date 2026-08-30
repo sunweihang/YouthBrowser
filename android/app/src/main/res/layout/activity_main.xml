@@ -1,0 +1,184 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/jx_bg">
+
+    <LinearLayout
+        android:id="@+id/toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="@color/jx_toolbar"
+        android:paddingTop="8dp"
+        android:paddingBottom="6dp"
+        android:elevation="2dp">
+
+        <!-- Row 1: navigation + URL -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingHorizontal="4dp">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnBack"
+                style="@style/Jx.ToolbarButton"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:insetLeft="0dp"
+                android:insetRight="0dp"
+                android:text="←"
+                android:textSize="18sp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnForward"
+                style="@style/Jx.ToolbarButton"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:insetLeft="0dp"
+                android:insetRight="0dp"
+                android:text="→"
+                android:textSize="18sp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnReload"
+                style="@style/Jx.ToolbarButton"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:insetLeft="0dp"
+                android:insetRight="0dp"
+                android:text="↻"
+                android:textSize="18sp" />
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:hint="@string/url_hint"
+                app:boxBackgroundMode="outline"
+                app:boxCornerRadiusBottomEnd="10dp"
+                app:boxCornerRadiusBottomStart="10dp"
+                app:boxCornerRadiusTopEnd="10dp"
+                app:boxCornerRadiusTopStart="10dp"
+                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox.Dense">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/urlBar"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:imeOptions="actionGo"
+                    android:inputType="textUri"
+                    android:maxLines="1"
+                    android:singleLine="true"
+                    android:textSize="14sp" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnGo"
+                style="@style/Widget.MaterialComponents.Button"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
+                android:minWidth="56dp"
+                android:text="@string/go" />
+        </LinearLayout>
+
+        <!-- Row 2: star + Firefox-style overflow menu -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingHorizontal="8dp"
+            android:paddingTop="4dp">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnStar"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="40dp"
+                android:layout_weight="1"
+                android:text="☆ 收藏"
+                android:textSize="13sp"
+                android:contentDescription="@string/bookmark" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnMenu"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="40dp"
+                android:layout_weight="1"
+                android:layout_marginStart="6dp"
+                android:text="☰ 菜单"
+                android:textSize="13sp"
+                android:contentDescription="@string/menu" />
+        </LinearLayout>
+
+        <!-- Row 3: bookmarks bar — always shown -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingHorizontal="10dp"
+            android:paddingTop="6dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/bookmarks_label"
+                android:textColor="@color/jx_primary_dark"
+                android:textStyle="bold"
+                android:textSize="13sp"
+                android:paddingEnd="6dp" />
+
+            <HorizontalScrollView
+                android:id="@+id/bookmarksScroll"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:scrollbars="none">
+
+                <LinearLayout
+                    android:id="@+id/bookmarksBar"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical" />
+            </HorizontalScrollView>
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/bookmarksEmpty"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingHorizontal="10dp"
+            android:paddingTop="2dp"
+            android:paddingBottom="2dp"
+            android:text="@string/bookmarks_empty_hint"
+            android:textColor="@color/jx_muted"
+            android:textSize="12sp"
+            android:visibility="gone" />
+
+        <ProgressBar
+            android:id="@+id/progress"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="3dp"
+            android:layout_marginTop="2dp"
+            android:indeterminate="false"
+            android:max="100"
+            android:progress="0"
+            android:visibility="gone" />
+    </LinearLayout>
+
+    <WebView
+        android:id="@+id/webView"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+</LinearLayout>

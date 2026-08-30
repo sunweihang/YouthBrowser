@@ -7,14 +7,14 @@ const backBtn = document.getElementById('back');
 const forwardBtn = document.getElementById('forward');
 const reloadBtn = document.getElementById('reload');
 const newTabBtn = document.getElementById('newTab');
-const parentBtn = document.getElementById('parentBtn');
 const bookmarkBtn = document.getElementById('bookmarkBtn');
 const bookmarksBar = document.getElementById('bookmarksBar');
 const bookmarksItems = document.getElementById('bookmarksItems');
-const manageBookmarks = document.getElementById('manageBookmarks');
 const navForm = document.getElementById('navForm');
+const menuBtn = document.getElementById('menuBtn');
 
 let lastActive = null;
+let lastState = null;
 
 function extractDroppedUrl(dt) {
   const uriList = (dt.getData('text/uri-list') || '')
@@ -75,11 +75,6 @@ function renderBookmarks(toolbar) {
   bookmarksItems.innerHTML = '';
   const items = Array.isArray(toolbar) ? toolbar : [];
   if (items.length === 0) {
-    const empty = document.createElement('span');
-    empty.className = 'bookmarks-empty';
-    empty.textContent =
-      '把地址栏网址拖到这里，或打开网页后点☆；也可点「管理」建文件夹';
-    bookmarksItems.appendChild(empty);
     return;
   }
   for (const bm of items) {
@@ -140,6 +135,7 @@ function renderBookmarks(toolbar) {
 
 function render(state) {
   if (!state) return;
+  lastState = state;
   tabsEl.innerHTML = '';
   for (const tab of state.tabs) {
     const el = document.createElement('div');
@@ -173,6 +169,9 @@ function render(state) {
     if (document.activeElement !== urlInput) {
       urlInput.value = showUrl;
     }
+    urlInput.placeholder = state.filteringEnabled
+      ? '输入已授权的网址'
+      : '输入网址';
     const canDragUrl =
       active.url &&
       (active.url.startsWith('http://') || active.url.startsWith('https://'));
@@ -183,13 +182,16 @@ function render(state) {
     bookmarkBtn.textContent = active.isBookmarked ? '★' : '☆';
     bookmarkBtn.title = active.isBookmarked
       ? '取消收藏'
-      : '收藏本页（也可把地址栏拖到书签栏）';
+      : '收藏本页';
     bookmarkBtn.disabled = !canDragUrl;
   } else {
     urlInput.draggable = false;
     bookmarkBtn.disabled = true;
     bookmarkBtn.classList.remove('active');
     bookmarkBtn.textContent = '☆';
+    urlInput.placeholder = state.filteringEnabled
+      ? '输入已授权的网址'
+      : '输入网址';
   }
 
   const bm = state.bookmarks;
@@ -200,13 +202,9 @@ function render(state) {
       : [];
   renderBookmarks(toolbar);
 
-  if (state.needsParentSetup) {
-    parentBtn.textContent = '家长设置';
-    parentBtn.style.borderColor = 'var(--danger)';
-  } else {
-    parentBtn.textContent = '家长';
-    parentBtn.style.borderColor = '';
-  }
+  bookmarksBar.classList.toggle('hidden-bar', state.bookmarksBarVisible === false);
+  menuBtn.classList.toggle('needs-setup', Boolean(state.needsParentSetup));
+    menuBtn.title = '打开菜单';
 }
 
 urlInput.addEventListener('dragstart', (e) => {
@@ -237,9 +235,218 @@ backBtn.addEventListener('click', () => api.goBack());
 forwardBtn.addEventListener('click', () => api.goForward());
 reloadBtn.addEventListener('click', () => api.reload());
 newTabBtn.addEventListener('click', () => api.newTab());
-parentBtn.addEventListener('click', () => api.openParent());
 bookmarkBtn.addEventListener('click', () => api.toggleBookmark());
-manageBookmarks.addEventListener('click', () => api.openBookmarksManager());
+menuBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  const rect = menuBtn.getBoundingClientRect();
+  api.popupAppMenu(Math.round(rect.left), Math.round(rect.bottom));
+});
+
+const updateBadge = document.getElementById('updateBadge');
+
+function overlayHeight() {
+  let extra = 0;
+  if (!findBar.classList.contains('hidden')) {
+    extra += Math.max(36, Math.ceil(findBar.getBoundingClientRect().height));
+  }
+  const homeBar = document.getElementById('homepageBar');
+  if (homeBar && !homeBar.classList.contains('hidden')) {
+    extra += Math.max(36, Math.ceil(homeBar.getBoundingClientRect().height));
+  }
+  const passBar = document.getElementById('passwordBar');
+  if (passBar && !passBar.classList.contains('hidden')) {
+    extra += Math.max(36, Math.ceil(passBar.getBoundingClientRect().height));
+  }
+  return extra;
+}
+
+function syncChromeExtra() {
+  requestAnimationFrame(() => {
+    void api.setChromeExtra(overlayHeight());
+  });
+}
+
+function renderUpdateBadge(st) {
+  if (!st) return;
+  const pct = Math.max(0, Math.min(100, Number(st.percent) || 0));
+  updateBadge.classList.add('hidden');
+  updateBadge.classList.remove('ready', 'downloading');
+  if (st.status === 'ready') {
+    updateBadge.textContent = '新';
+    updateBadge.classList.remove('hidden');
+    updateBadge.classList.add('ready');
+  } else if (st.status === 'downloading') {
+    updateBadge.textContent = `${pct.toFixed(0)}%`;
+    updateBadge.classList.remove('hidden');
+    updateBadge.classList.add('downloading');
+  } else if (st.status === 'available') {
+    updateBadge.textContent = '!';
+    updateBadge.classList.remove('hidden');
+  } else if (lastState && lastState.needsParentSetup) {
+    updateBadge.textContent = '!';
+    updateBadge.classList.remove('hidden');
+  }
+}
+
+api.onUpdateStatus(renderUpdateBadge);
+api.getUpdateStatus().then(renderUpdateBadge);
+
+/* —— 查找栏 —— */
+const findBar = document.getElementById('findBar');
+const findInput = document.getElementById('findInput');
+const findCount = document.getElementById('findCount');
+const findPrev = document.getElementById('findPrev');
+const findNext = document.getElementById('findNext');
+const findClose = document.getElementById('findClose');
+
+function openFindBar() {
+  findBar.classList.remove('hidden');
+  syncChromeExtra();
+  findInput.focus();
+  findInput.select();
+  if (findInput.value) api.findInPage(findInput.value, { findNext: false });
+}
+
+function closeFindBar() {
+  findBar.classList.add('hidden');
+  findCount.textContent = '';
+  api.stopFindInPage();
+  syncChromeExtra();
+}
+
+function runFind(forward, findNext) {
+  const q = findInput.value;
+  if (!q) {
+    api.stopFindInPage();
+    findCount.textContent = '';
+    return;
+  }
+  api.findInPage(q, { forward, findNext });
+}
+
+findInput.addEventListener('input', () => runFind(true, false));
+findInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    runFind(!e.shiftKey, true);
+  } else if (e.key === 'Escape') {
+    closeFindBar();
+  }
+});
+findPrev.addEventListener('click', () => runFind(false, true));
+findNext.addEventListener('click', () => runFind(true, true));
+findClose.addEventListener('click', closeFindBar);
+
+api.onFindResult((result) => {
+  if (!result) {
+    findCount.textContent = '';
+    return;
+  }
+  const matches = Number(result.matches) || 0;
+  const active = Number(result.activeMatchOrdinal) || 0;
+  findCount.textContent = matches ? `${active} / ${matches}` : '无匹配';
+});
+
+const homepageBar = document.getElementById('homepageBar');
+const homepageInput = document.getElementById('homepageInput');
+const homepageError = document.getElementById('homepageError');
+
+async function openHomepageDialog() {
+  homepageError.textContent = '';
+  homepageInput.value = (await api.getHomepage()) || '';
+  homepageBar.classList.remove('hidden');
+  syncChromeExtra();
+  homepageInput.focus();
+  homepageInput.select();
+}
+
+function closeHomepageDialog() {
+  homepageBar.classList.add('hidden');
+  homepageError.textContent = '';
+  syncChromeExtra();
+}
+
+homepageBar.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  homepageError.textContent = '';
+  const res = await api.setHomepage(homepageInput.value);
+  if (!res.ok) {
+    homepageError.textContent = res.error || '保存失败';
+    return;
+  }
+  closeHomepageDialog();
+});
+
+document.getElementById('homepageUseCurrent').addEventListener('click', async () => {
+  homepageError.textContent = '';
+  const res = await api.setCurrentHomepage();
+  if (!res.ok) {
+    homepageError.textContent = res.error || '当前没有打开的网页';
+    return;
+  }
+  homepageInput.value = res.homepage || '';
+  closeHomepageDialog();
+});
+
+document.getElementById('homepageClear').addEventListener('click', async () => {
+  homepageError.textContent = '';
+  const res = await api.setHomepage('');
+  if (!res.ok) {
+    homepageError.textContent = res.error || '清除失败';
+    return;
+  }
+  closeHomepageDialog();
+});
+
+document.getElementById('homepageClose').addEventListener('click', closeHomepageDialog);
+homepageInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeHomepageDialog();
+});
+
+const passwordBar = document.getElementById('passwordBar');
+const passwordBarText = document.getElementById('passwordBarText');
+let pendingPassword = null;
+
+function closePasswordBar() {
+  pendingPassword = null;
+  passwordBar.classList.add('hidden');
+  syncChromeExtra();
+}
+
+function openPasswordBar(offer) {
+  if (!offer || !offer.origin || !offer.password) return;
+  pendingPassword = offer;
+  const host = offer.host || offer.origin;
+  const user = offer.username || '';
+  passwordBarText.textContent = offer.update
+    ? `更新 ${host}（${user}）的密码？`
+    : `保存 ${host}（${user}）的密码？`;
+  passwordBar.classList.remove('hidden');
+  syncChromeExtra();
+}
+
+document.getElementById('passwordSave').addEventListener('click', async () => {
+  if (!pendingPassword) return;
+  await api.saveSitePassword(pendingPassword);
+  closePasswordBar();
+});
+document.getElementById('passwordDismiss').addEventListener('click', closePasswordBar);
+document.getElementById('passwordClose').addEventListener('click', closePasswordBar);
+
+api.onCommand((cmd) => {
+  if (!cmd || !cmd.action) return;
+  if (cmd.action === 'openFind') openFindBar();
+  if (cmd.action === 'editHomepage') openHomepageDialog();
+  if (cmd.action === 'offerSavePassword') openPasswordBar(cmd.payload);
+  if (cmd.action === 'findNext') {
+    if (findBar.classList.contains('hidden')) openFindBar();
+    else runFind(true, true);
+  }
+  if (cmd.action === 'findPrev') {
+    if (findBar.classList.contains('hidden')) openFindBar();
+    else runFind(false, true);
+  }
+});
 
 api.onState(render);
 api.getState().then(render);

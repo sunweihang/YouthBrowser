@@ -183,6 +183,44 @@ async function main() {
     }
     await exec(conn, copies.join(' && '));
 
+    // Keep only the latest installer (+ blockmap); remove older Setup builds.
+    // Use Python so SSH/shell does not expand `$…` variables.
+    const keepExe = arts.exeName;
+    const keepBlock = arts.blockmapName || '';
+    await exec(
+      conn,
+      `python3 - <<'PY'
+import os, subprocess
+keep = ${JSON.stringify(keepExe)}
+keepb = ${JSON.stringify(keepBlock)}
+roots = [
+    (${JSON.stringify(remoteHome)}, False),
+    (${JSON.stringify(remoteWeb)}, True),
+]
+patterns_suffix = (
+    "JianXingBrowser-Setup-",
+    "简行浏览器-Setup-",
+)
+for root, use_sudo in roots:
+    if not os.path.isdir(root):
+        continue
+    for name in os.listdir(root):
+        if not (name.endswith(".exe") or name.endswith(".exe.blockmap")):
+            continue
+        if not name.startswith(patterns_suffix):
+            continue
+        if name == keep or (keepb and name == keepb):
+            print("KEEP", root, name)
+            continue
+        path = os.path.join(root, name)
+        if use_sudo:
+            subprocess.check_call(["sudo", "rm", "-f", path])
+        else:
+            os.remove(path)
+        print("removed", path)
+PY`
+    );
+
     const listing = await exec(
       conn,
       `python3 - <<'PY'

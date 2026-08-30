@@ -81,3 +81,51 @@ h1 {
   font-size: 13px;
   color: var(--muted);
 }
+
+.hidden { display: none !important; }
+
+.apply-wrap {
+  margin-top: 4px;
+}
+
+.apply-wrap .hint {
+  margin-bottom: 14px;
+  line-height: 1.5;
+}
+
+button.primary {
+  height: 40px;
+  padding: 0 18px;
+  border: none;
+  border-radius: 10px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button.primary:hover {
+  filter: brightness(1.06);
+}
+
+button.primary:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.apply-status {
+  margin: 12px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.45;
+  min-height: 1.2em;
+}
+
+.apply-status.ok {
+  color: #6dcea0;
+}
+
+.apply-status.err {
+  color: #e88a8a;
+}

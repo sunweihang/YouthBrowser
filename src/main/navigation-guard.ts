@@ -74,15 +74,21 @@ function isBiliStaticOrApi(host: string): boolean {
   );
 }
 
-function deny(reason: BlockReason, message: string): NavigateResult {
-  return { allowed: false, reason, message };
+function deny(
+  reason: BlockReason,
+  message: string,
+  meta?: NavigateResult['meta']
+): NavigateResult {
+  return { allowed: false, reason, message, meta };
 }
 
 function allow(finalUrl: string): NavigateResult {
   return { allowed: true, finalUrl };
 }
 
-function isAllowedBiliPath(pathname: string): 'space' | 'video' | 'asset' | false {
+function isAllowedBiliPath(
+  pathname: string
+): 'space' | 'video' | 'asset' | 'search' | 'home' | false {
   if (
     pathname.startsWith('/bfs/') ||
     pathname.startsWith('/favicon') ||
@@ -90,9 +96,27 @@ function isAllowedBiliPath(pathname: string): 'space' | 'video' | 'asset' | fals
   ) {
     return 'asset';
   }
+  // Homepage only (not 热门/动态/分区等)
+  if (pathname === '/' || pathname === '') {
+    return 'home';
+  }
+  if (
+    pathname === '/search' ||
+    pathname.startsWith('/search/') ||
+    pathname === '/s' ||
+    pathname.startsWith('/s/')
+  ) {
+    return 'search';
+  }
   if (/\/video\/(BV[\w]+|av\d+)/i.test(pathname)) return 'video';
+  if (/^\/space\/\d+(?:\/|$)/i.test(pathname)) return 'space';
   if (/^\/\d+(?:\/|$)/.test(pathname)) return 'space';
   return false;
+}
+
+function isBiliSearchHost(host: string): boolean {
+  const h = normalizeHost(host);
+  return h === 'search.bilibili.com' || h.endsWith('.search.bilibili.com');
 }
 
 async function enforceBilibili(
@@ -112,7 +136,7 @@ async function enforceBilibili(
       return deny('bili_path_denied', '仅允许打开指定 UP 的空间主页');
     }
     if (!allowedMids.includes(mid)) {
-      return deny('bili_up_denied', `UP ${mid} 不在允许列表`);
+      return deny('bili_up_denied', `UP ${mid} 不在允许列表`, { mid });
     }
     return allow(url.toString());
   }
@@ -123,7 +147,9 @@ async function enforceBilibili(
     host.endsWith('.bilibili.com')
   ) {
     const kind = isAllowedBiliPath(pathname);
-    if (kind === 'asset') return allow(url.toString());
+    if (kind === 'asset' || kind === 'search' || kind === 'home') {
+      return allow(url.toString());
+    }
     if (kind === 'video') {
       const ids = parseBiliVideoId(pathname);
       if (!ids) return deny('bili_path_denied', '无法识别视频 ID');
@@ -131,13 +157,20 @@ async function enforceBilibili(
       if (!owner.ok || !owner.mid) {
         return deny(
           'bili_resolve_failed',
-          owner.error || '无法确认该视频的 UP 主'
+          owner.error || '无法确认该视频的 UP 主',
+          { bvid: ids.bvid, aid: ids.aid }
         );
       }
       if (!allowedMids.includes(owner.mid)) {
         return deny(
           'bili_up_denied',
-          `该视频属于 UP ${owner.mid}，不在允许列表`
+          `该视频属于 UP ${owner.mid}，不在允许列表`,
+          {
+            mid: owner.mid,
+            bvid: ids.bvid,
+            aid: ids.aid,
+            title: owner.title,
+          }
         );
       }
       return allow(url.toString());
@@ -145,10 +178,13 @@ async function enforceBilibili(
     if (kind === 'space') {
       const mid = parseSpaceMid(pathname);
       if (mid && allowedMids.includes(mid)) return allow(url.toString());
+      if (mid) {
+        return deny('bili_up_denied', `UP ${mid} 不在允许列表`, { mid });
+      }
     }
     return deny(
       'bili_path_denied',
-      'B 站仅允许打开白名单 UP 的视频或空间，首页/搜索等已禁用'
+      'B 站已在策略中，但该路径未开放：请用首页/搜索，或点「申请观看」'
     );
   }
 
@@ -163,7 +199,9 @@ export async function canNavigate(
   if (!urlString) return deny('invalid_url', '地址为空');
 
   if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(urlString)) {
-    urlString = `https://${urlString}`;
+    // Bare IP addresses almost never have a valid TLS cert — prefer http.
+    const looksLikeIp = /^(\d{1,3}\.){3}\d{1,3}([/:?]|$)/.test(urlString);
+    urlString = `${looksLikeIp ? 'http' : 'https'}://${urlString}`;
   }
 
   let url: URL;
@@ -180,6 +218,10 @@ export async function canNavigate(
     return deny('protocol_denied', '仅允许 http/https');
   }
 
+  if (!rules.filteringEnabled) {
+    return allow(url.toString());
+  }
+
   let host = normalizeHost(url.hostname);
 
   if (host === 'b23.tv' || host === 'www.b23.tv') {
@@ -190,6 +232,11 @@ export async function canNavigate(
     } catch {
       return deny('invalid_url', '短链解析失败');
     }
+  }
+
+  // Search subdomain: allow when any Bilibili extension group is enabled
+  if (isBiliSearchHost(host) && hasEnabledBiliExtension(rules)) {
+    return allow(url.toString());
   }
 
   // CDN/API for Bilibili: allow when any enabled Bilibili extension group exists
@@ -228,11 +275,24 @@ export function buildBlockUrl(
   blockPageFileUrl: string,
   originalUrl: string,
   reason: string,
-  message: string
+  message: string,
+  meta?: NavigateResult['meta']
 ): string {
+  let displayUrl = originalUrl;
+  try {
+    if (displayUrl && !/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(displayUrl)) {
+      displayUrl = `https://${displayUrl}`;
+    }
+  } catch {
+    // keep original
+  }
   const u = new URL(blockPageFileUrl);
-  u.searchParams.set('url', originalUrl);
+  u.searchParams.set('url', displayUrl);
   u.searchParams.set('reason', reason);
   u.searchParams.set('message', message);
+  if (meta?.mid) u.searchParams.set('mid', meta.mid);
+  if (meta?.bvid) u.searchParams.set('bvid', meta.bvid);
+  if (meta?.aid) u.searchParams.set('aid', meta.aid);
+  if (meta?.title) u.searchParams.set('title', meta.title);
   return u.toString();
 }

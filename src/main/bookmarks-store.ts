@@ -44,6 +44,7 @@ function normalizeBookmarkUrl(url: string): string {
 
 export class BookmarksStore {
   private nodes: BookmarkNode[] = [];
+  private revision = 0;
 
   constructor() {
     this.nodes = this.load();
@@ -57,9 +58,13 @@ export class BookmarksStore {
     try {
       const raw = JSON.parse(readFileSync(path, 'utf8')) as {
         version?: number;
+        revision?: number;
         nodes?: Partial<BookmarkNode>[];
         bookmarks?: Array<{ id?: string; title?: string; url?: string; createdAt?: number }>;
       };
+      if (typeof raw.revision === 'number' && raw.revision >= 0) {
+        this.revision = raw.revision;
+      }
 
       // v2 tree
       if (Array.isArray(raw.nodes)) {
@@ -191,7 +196,11 @@ export class BookmarksStore {
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(
       path,
-      JSON.stringify({ version: 2, nodes: this.nodes }, null, 2),
+      JSON.stringify(
+        { version: 2, revision: this.revision, nodes: this.nodes },
+        null,
+        2
+      ),
       'utf8'
     );
   }
@@ -249,7 +258,40 @@ export class BookmarksStore {
       nodes: this.list(),
       toolbar: this.getToolbarItems(),
       folders: this.getFolders(),
+      revision: this.revision,
     };
+  }
+
+  getRevision(): number {
+    return this.revision;
+  }
+
+  exportForSync(): BookmarkNode[] {
+    return this.list();
+  }
+
+  /** Replace local tree from cloud sync payload. */
+  replaceFromSync(
+    nodes: Partial<BookmarkNode>[],
+    revision?: number
+  ): { ok: boolean; error?: string; snapshot?: ReturnType<BookmarksStore['snapshot']> } {
+    if (!Array.isArray(nodes)) {
+      return { ok: false, error: '收藏夹数据无效' };
+    }
+    const normalized = nodes
+      .map((n) => this.normalizeNode(n))
+      .filter((n): n is BookmarkNode => Boolean(n));
+    this.nodes = this.ensureRoots(normalized);
+    if (typeof revision === 'number' && revision >= 0) {
+      this.revision = revision;
+    }
+    this.persist();
+    return { ok: true, snapshot: this.snapshot() };
+  }
+
+  setRevision(revision: number): void {
+    this.revision = Math.max(0, Number(revision) || 0);
+    this.persist();
   }
 
   addBookmark(input: {

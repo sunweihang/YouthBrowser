@@ -9,3 +9,7 @@ JianXingBrowser-Setup-*.exe
 *.exe.blockmap
 .env
 .env.*
+2504
+dist-tmp-nav.js
+*.jks
+android/keystore/

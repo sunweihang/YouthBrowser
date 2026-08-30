@@ -2,25 +2,113 @@ import {
   app,
   BrowserView,
   BrowserWindow,
+  dialog,
   ipcMain,
   Menu,
   session,
 } from 'electron';
 import type { MenuItemConstructorOptions } from 'electron';
-import { join } from 'path';
+import { mkdirSync, readFileSync, writeFileSync } from 'fs';
+import { dirname, join } from 'path';
 import { pathToFileURL } from 'url';
 import { BookmarksStore } from './bookmarks-store';
 import { AccountStore } from './account-store';
 import { groupsPayloadEqual, SyncClient } from './sync-client';
-import { startAutoUpdater } from './auto-update';
+import { startAutoUpdater, registerUpdateIpc } from './auto-update';
 import {
   buildBlockUrl,
   canNavigate,
+  hostAllowed,
 } from './navigation-guard';
-import { extractMidFromInput, RulesStore } from './rules-store';
+import { extractMidFromInput, normalizeHomepage, RulesStore } from './rules-store';
+import { WatchRequestsStore } from './watch-requests-store';
+import { HistoryStore } from './history-store';
+import { SitePasswordsStore } from './site-passwords-store';
+import {
+  extractLaunchUrl,
+  registerAsDefaultBrowser,
+} from './default-browser';
 
-/** tabs(40) + toolbar(48) + bookmarks(36) */
-const TOOLBAR_HEIGHT = 124;
+const TAB_BAR_HEIGHT = 40;
+const TOOLBAR_HEIGHT = 48;
+const BOOKMARKS_BAR_HEIGHT = 36;
+/** Extra space for chrome overlays (e.g. update / find) that would otherwise sit under BrowserView */
+let chromeExtraHeight = 0;
+let bookmarksBarVisible = true;
+let menuBarVisible = true;
+let homepage = '';
+
+function chromeHeight(): number {
+  return (
+    TAB_BAR_HEIGHT +
+    TOOLBAR_HEIGHT +
+    (bookmarksBarVisible ? BOOKMARKS_BAR_HEIGHT : 0) +
+    chromeExtraHeight
+  );
+}
+
+function chromePrefsPath(): string {
+  return join(app.getPath('userData'), 'chrome.json');
+}
+
+function loadChromePrefs(): void {
+  let hasHomepageKey = false;
+  try {
+    const raw = JSON.parse(readFileSync(chromePrefsPath(), 'utf8')) as {
+      bookmarksBarVisible?: boolean;
+      menuBarVisible?: boolean;
+      homepage?: string;
+    };
+    bookmarksBarVisible = raw.bookmarksBarVisible !== false;
+    menuBarVisible = raw.menuBarVisible !== false;
+    if (Object.prototype.hasOwnProperty.call(raw, 'homepage')) {
+      hasHomepageKey = true;
+      const parsed = normalizeHomepage(String(raw.homepage || ''));
+      homepage = parsed.ok ? parsed.url : '';
+    }
+  } catch {
+    bookmarksBarVisible = true;
+    menuBarVisible = true;
+  }
+  if (!hasHomepageKey) {
+    const migrated = rulesStore.getHomepage();
+    if (migrated) homepage = migrated;
+    saveChromePrefs();
+  }
+}
+
+function saveChromePrefs(): void {
+  const path = chromePrefsPath();
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(
+    path,
+    JSON.stringify({ bookmarksBarVisible, menuBarVisible, homepage }, null, 2),
+    'utf8'
+  );
+}
+
+function getHomepage(): string {
+  return homepage;
+}
+
+function setHomepage(
+  raw: string
+): { ok: boolean; error?: string; homepage?: string } {
+  const parsed = normalizeHomepage(raw);
+  if (!parsed.ok) return parsed;
+  homepage = parsed.url;
+  saveChromePrefs();
+  return { ok: true, homepage };
+}
+
+function setCurrentPageAsHomepage(): { ok: boolean; error?: string; homepage?: string } {
+  const tab = activeTab();
+  const url = tab?.url || '';
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    return { ok: false, error: '当前没有打开的网页' };
+  }
+  return setHomepage(url);
+}
 
 const APP_NAME = '简行浏览器';
 
@@ -37,13 +125,54 @@ interface TabState {
 let mainWindow: BrowserWindow | null = null;
 let parentWindow: BrowserWindow | null = null;
 let bookmarksWindow: BrowserWindow | null = null;
+let historyWindow: BrowserWindow | null = null;
+let updateWindow: BrowserWindow | null = null;
+let passwordsWindow: BrowserWindow | null = null;
 let rulesStore: RulesStore;
 let bookmarksStore: BookmarksStore;
 let accountStore: AccountStore;
+let watchRequestsStore: WatchRequestsStore;
+let historyStore: HistoryStore;
+let sitePasswordsStore: SitePasswordsStore;
 let syncClient: SyncClient;
 let tabs: TabState[] = [];
 let activeTabId: string | null = null;
 let parentUnlocked = false;
+let pendingLaunchUrl: string | null = null;
+
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+}
+
+app.on('second-instance', (_event, argv) => {
+  const url = extractLaunchUrl(argv);
+  if (url) openLaunchUrl(url);
+  else focusMainWindow();
+});
+
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+  if (/^https?:\/\//i.test(url) || /^file:\/\//i.test(url)) {
+    openLaunchUrl(url);
+  }
+});
+
+function focusMainWindow(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+}
+
+function openLaunchUrl(url: string): void {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    pendingLaunchUrl = url;
+    return;
+  }
+  createTab(url);
+  focusMainWindow();
+}
 
 function distPath(...parts: string[]): string {
   return join(__dirname, '..', ...parts);
@@ -64,6 +193,39 @@ function notifyBookmarks(): void {
       bookmarksStore.snapshot()
     );
   }
+}
+
+function notifyHistory(): void {
+  if (historyWindow && !historyWindow.isDestroyed()) {
+    historyWindow.webContents.send('history:changed', {
+      entries: historyStore.list(),
+      count: historyStore.count(),
+    });
+  }
+}
+
+function activeTab(): TabState | undefined {
+  return tabs.find((t) => t.id === activeTabId);
+}
+
+function recordTabVisit(tab: TabState, url?: string): void {
+  const href = url || tab.url;
+  if (!isHttpUrl(href)) return;
+  historyStore.record(href, tab.title || href);
+  notifyHistory();
+}
+
+function authorizeHistoryDelete(password?: string): { ok: boolean; error?: string } {
+  if (parentUnlocked) return { ok: true };
+  if (!rulesStore.hasPassword()) return { ok: true };
+  if (typeof password === 'string' && rulesStore.verify(password)) {
+    return { ok: true };
+  }
+  return { ok: false, error: '需要家长密码才能删除历史记录' };
+}
+
+function sendShellCommand(action: string, payload?: unknown): void {
+  notifyShell('shell:command', { action, payload });
 }
 
 function notifyShell(channel: string, payload: unknown): void {
@@ -102,22 +264,64 @@ function tabSnapshot() {
       : null,
     bookmarks: bookmarksStore.snapshot(),
     needsParentSetup: !rulesStore.hasPassword(),
+    filteringEnabled: rulesStore.isFilteringEnabled(),
+    homepage: getHomepage(),
+    bookmarksBarVisible,
+    menuBarVisible,
+    zoomFactor: active ? Number(active.view.webContents.getZoomFactor() || 1) : 1,
   };
 }
 
 function layoutViews(): void {
   if (!mainWindow) return;
   const [width, height] = mainWindow.getContentSize();
+  const top = chromeHeight();
   for (const tab of tabs) {
     const bounds = {
       x: 0,
-      y: TOOLBAR_HEIGHT,
+      y: top,
       width,
-      height: Math.max(0, height - TOOLBAR_HEIGHT),
+      height: Math.max(0, height - top),
     };
     tab.view.setBounds(bounds);
     tab.view.setAutoResize({ width: true, height: true });
   }
+}
+
+function currentPageIsBookmarked(): boolean {
+  const tab = activeTab();
+  return Boolean(tab && isHttpUrl(tab.url) && bookmarksStore.findByUrl(tab.url));
+}
+
+function canBookmarkCurrentPage(): boolean {
+  const tab = activeTab();
+  return Boolean(tab && isHttpUrl(tab.url));
+}
+
+function bookmarkCurrentPage(): void {
+  const tab = activeTab();
+  if (!tab || !isHttpUrl(tab.url)) return;
+  bookmarksStore.toggleUrl(tab.title || tab.url, tab.url);
+  notifyShell('shell:state', tabSnapshot());
+  notifyBookmarks();
+  refreshAppMenu();
+}
+
+let lastMenuKey = '';
+
+function refreshAppMenuIfNeeded(): void {
+  const tab = activeTab();
+  const key = [
+    tab?.url || '',
+    tab?.canGoBack ? '1' : '0',
+    tab?.canGoForward ? '1' : '0',
+    currentPageIsBookmarked() ? '1' : '0',
+    bookmarksBarVisible ? '1' : '0',
+    menuBarVisible ? '1' : '0',
+  ].join('|');
+  if (key === lastMenuKey) return;
+  lastMenuKey = key;
+  refreshAppMenu();
 }
 
 function updateNavState(tab: TabState): void {
@@ -128,6 +332,7 @@ function updateNavState(tab: TabState): void {
   tab.title = wc.getTitle() || tab.title;
   if (tab.id === activeTabId) {
     notifyShell('shell:state', tabSnapshot());
+    refreshAppMenuIfNeeded();
   }
 }
 
@@ -146,13 +351,32 @@ async function guardedLoad(tab: TabState, targetUrl: string): Promise<void> {
     return;
   }
 
+  // Parent-approved watch request: allow same host+path again
+  if (watchRequestsStore?.isApprovedUrl(targetUrl)) {
+    try {
+      await tab.view.webContents.loadURL(targetUrl);
+    } catch {
+      const blocked = buildBlockUrl(
+        blockPageUrl(),
+        targetUrl,
+        'invalid_url',
+        '页面加载失败'
+      );
+      await tab.view.webContents.loadURL(blocked);
+    }
+    tab.loading = false;
+    updateNavState(tab);
+    return;
+  }
+
   const result = await canNavigate(targetUrl, rulesStore.getRaw());
   if (!result.allowed) {
     const blocked = buildBlockUrl(
       blockPageUrl(),
       targetUrl,
       result.reason || 'host_denied',
-      result.message || '访问被拦截'
+      result.message || '访问被拦截',
+      result.meta
     );
     await tab.view.webContents.loadURL(blocked);
     tab.url = targetUrl;
@@ -191,35 +415,59 @@ function attachGuards(tab: TabState): void {
     void guardedLoad(tab, url);
   });
 
+  // Only cancel denied redirects. preventDefault + loadURL on allowed
+  // redirects is a known Electron/Chromium crash trigger.
   wc.on('will-redirect', (event, url) => {
     if (url.startsWith('file:')) return;
-    // Synchronous prevent — async check then load
-    event.preventDefault();
-    void (async () => {
-      const result = await canNavigate(url, rulesStore.getRaw());
-      if (result.allowed) {
-        await wc.loadURL(result.finalUrl || url);
-      } else {
-        await wc.loadURL(
-          buildBlockUrl(
-            blockPageUrl(),
-            url,
-            result.reason || 'host_denied',
-            result.message || '重定向被拦截'
-          )
+    if (!rulesStore.isFilteringEnabled()) return;
+    let allowed = false;
+    try {
+      const u = new URL(url);
+      if (u.protocol === 'http:' || u.protocol === 'https:') {
+        const host = u.hostname.toLowerCase().replace(/\.$/, '');
+        const rules = rulesStore.getRaw();
+        allowed = rules.groups.some(
+          (g) => g.enabled && hostAllowed(host, g.hosts)
         );
       }
-      updateNavState(tab);
-    })();
+    } catch {
+      allowed = false;
+    }
+    if (allowed) return;
+    event.preventDefault();
+    void wc.loadURL(
+      buildBlockUrl(
+        blockPageUrl(),
+        url,
+        'host_denied',
+        '重定向目标未授权'
+      )
+    );
+    updateNavState(tab);
   });
 
   wc.on('page-title-updated', (_e, title) => {
     tab.title = title;
     updateNavState(tab);
+    if (isHttpUrl(tab.url)) {
+      historyStore.updateLatestTitle(tab.url, title);
+      notifyHistory();
+    }
   });
 
-  wc.on('did-navigate', () => updateNavState(tab));
-  wc.on('did-navigate-in-page', () => updateNavState(tab));
+  wc.on('did-navigate', (_e, url) => {
+    updateNavState(tab);
+    recordTabVisit(tab, url);
+  });
+  wc.on('did-navigate-in-page', (_e, url) => {
+    updateNavState(tab);
+    recordTabVisit(tab, url);
+  });
+  wc.on('found-in-page', (_e, result) => {
+    if (tab.id === activeTabId) {
+      notifyShell('shell:findResult', result);
+    }
+  });
   wc.on('did-start-loading', () => {
     tab.loading = true;
     updateNavState(tab);
@@ -250,6 +498,7 @@ function createTab(initialUrl?: string): TabState {
       nodeIntegration: false,
       sandbox: true,
       partition: 'persist:youth',
+      preload: distPath('preload', 'view.js'),
     },
   });
 
@@ -272,19 +521,41 @@ function createTab(initialUrl?: string): TabState {
   if (initialUrl) {
     void guardedLoad(tab, initialUrl);
   } else {
-    const welcome = buildBlockUrl(
-      blockPageUrl(),
-      '(未打开页面)',
-      'host_denied',
-      '请在地址栏输入已授权的网址。B 站仅可打开白名单 UP 的视频或空间。'
-    );
-    void tab.view.webContents.loadURL(welcome);
-    tab.title = '开始';
-    tab.url = '';
+    loadStartPage(tab);
   }
 
   notifyShell('shell:state', tabSnapshot());
   return tab;
+}
+
+function loadStartPage(tab: TabState): void {
+  const home = getHomepage();
+  if (home) {
+    void guardedLoad(tab, home);
+    return;
+  }
+  const welcomeHint = rulesStore.isFilteringEnabled()
+    ? '请在地址栏输入已授权的网址。B 站仅可打开白名单 UP 的视频或空间。'
+    : '访问过滤未开启。请在地址栏输入网址开始浏览。';
+  const welcome = buildBlockUrl(
+    blockPageUrl(),
+    '(未打开页面)',
+    'host_denied',
+    welcomeHint
+  );
+  void tab.view.webContents.loadURL(welcome);
+  tab.title = '开始';
+  tab.url = '';
+}
+
+function goHome(): void {
+  const tab = activeTab();
+  if (!tab) {
+    createTab();
+    return;
+  }
+  loadStartPage(tab);
+  notifyShell('shell:state', tabSnapshot());
 }
 
 function activateTab(id: string): void {
@@ -330,6 +601,7 @@ function createMainWindow(): void {
     minWidth: 800,
     minHeight: 600,
     title: APP_NAME,
+    autoHideMenuBar: !menuBarVisible,
     webPreferences: {
       preload: distPath('preload', 'browser.js'),
       contextIsolation: true,
@@ -338,7 +610,7 @@ function createMainWindow(): void {
     },
   });
 
-  mainWindow.setMenuBarVisibility(false);
+  applyMenuBarVisibility();
   void mainWindow.loadURL(rendererFile('browser', 'index.html'));
 
   mainWindow.on('resize', () => layoutViews());
@@ -349,8 +621,15 @@ function createMainWindow(): void {
   });
 
   mainWindow.webContents.on('did-finish-load', () => {
-    if (tabs.length === 0) createTab();
-    else {
+    if (tabs.length === 0) {
+      if (pendingLaunchUrl) {
+        const url = pendingLaunchUrl;
+        pendingLaunchUrl = null;
+        createTab(url);
+      } else {
+        createTab();
+      }
+    } else {
       layoutViews();
       notifyShell('shell:state', tabSnapshot());
     }
@@ -391,6 +670,508 @@ function openParentWindow(forceSetup = false): void {
     parentWindow = null;
     parentUnlocked = false;
   });
+}
+
+function applyMenuBarVisibility(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.setAutoHideMenuBar(!menuBarVisible);
+  mainWindow.setMenuBarVisibility(menuBarVisible);
+}
+
+function currentZoomFactor(): number {
+  const tab = activeTab();
+  return tab ? Number(tab.view.webContents.getZoomFactor() || 1) : 1;
+}
+
+function setZoomFactor(factor: number): void {
+  const tab = activeTab();
+  if (!tab) return;
+  const next = Math.max(0.5, Math.min(3, Math.round(factor * 100) / 100));
+  tab.view.webContents.setZoomFactor(next);
+  notifyShell('shell:state', tabSnapshot());
+  refreshAppMenu();
+}
+
+function zoomBy(delta: number): void {
+  setZoomFactor(currentZoomFactor() + delta);
+}
+
+function findInActiveTab(text: string, forward = true, findNext = true): void {
+  const tab = activeTab();
+  if (!tab) return;
+  const query = String(text || '');
+  if (!query) {
+    tab.view.webContents.stopFindInPage('clearSelection');
+    notifyShell('shell:findResult', null);
+    return;
+  }
+  tab.view.webContents.findInPage(query, { forward, findNext });
+}
+
+function openUpdateWindow(): void {
+  if (updateWindow && !updateWindow.isDestroyed()) {
+    updateWindow.focus();
+    return;
+  }
+  updateWindow = new BrowserWindow({
+    width: 440,
+    height: 380,
+    minWidth: 400,
+    minHeight: 340,
+    parent: mainWindow ?? undefined,
+    modal: false,
+    title: `${APP_NAME} · 软件更新`,
+    webPreferences: {
+      preload: distPath('preload', 'update.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  updateWindow.setMenuBarVisibility(false);
+  void updateWindow.loadURL(rendererFile('update', 'index.html'));
+  updateWindow.on('closed', () => {
+    updateWindow = null;
+  });
+}
+
+function httpOriginFromEvent(e: Electron.IpcMainInvokeEvent): string {
+  const url = e.senderFrame?.url || e.sender.getURL() || '';
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return '';
+    return u.origin;
+  } catch {
+    return '';
+  }
+}
+
+function notifyPasswordsChanged(): void {
+  if (passwordsWindow && !passwordsWindow.isDestroyed()) {
+    passwordsWindow.webContents.send('sitePassword:changed', {
+      entries: sitePasswordsStore.listPublic(),
+    });
+  }
+}
+
+function openPasswordsWindow(): void {
+  if (passwordsWindow && !passwordsWindow.isDestroyed()) {
+    passwordsWindow.focus();
+    notifyPasswordsChanged();
+    return;
+  }
+  passwordsWindow = new BrowserWindow({
+    width: 640,
+    height: 520,
+    minWidth: 480,
+    minHeight: 360,
+    parent: mainWindow ?? undefined,
+    modal: false,
+    title: `${APP_NAME} · 已保存的密码`,
+    webPreferences: {
+      preload: distPath('preload', 'passwords.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  passwordsWindow.setMenuBarVisibility(false);
+  void passwordsWindow.loadURL(rendererFile('passwords', 'index.html'));
+  passwordsWindow.on('closed', () => {
+    passwordsWindow = null;
+  });
+}
+
+function openHistoryWindow(): void {
+  if (historyWindow && !historyWindow.isDestroyed()) {
+    historyWindow.focus();
+    historyWindow.webContents.send('history:changed', {
+      entries: historyStore.list(),
+      count: historyStore.count(),
+    });
+    return;
+  }
+
+  historyWindow = new BrowserWindow({
+    width: 860,
+    height: 640,
+    minWidth: 640,
+    minHeight: 420,
+    parent: mainWindow ?? undefined,
+    modal: false,
+    title: `${APP_NAME} · 历史记录`,
+    webPreferences: {
+      preload: distPath('preload', 'history.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  historyWindow.setMenuBarVisibility(false);
+  void historyWindow.loadURL(rendererFile('history', 'index.html'));
+  historyWindow.on('closed', () => {
+    historyWindow = null;
+  });
+}
+
+function popupAppMenu(x: number, y: number): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const tab = activeTab();
+  const zoom = Math.round(currentZoomFactor() * 100);
+  const menu = Menu.buildFromTemplate([
+    {
+      label: '新建标签页',
+      accelerator: 'CmdOrCtrl+T',
+      click: () => createTab(),
+    },
+    {
+      label: '关闭标签页',
+      accelerator: 'CmdOrCtrl+W',
+      click: () => {
+        if (activeTabId) closeTab(activeTabId);
+      },
+    },
+    { type: 'separator' },
+    {
+      label: '书签',
+      submenu: [
+        {
+          label: currentPageIsBookmarked()
+            ? '取消此页书签'
+            : '将此页添加为书签',
+          accelerator: 'CmdOrCtrl+D',
+          enabled: canBookmarkCurrentPage(),
+          click: () => bookmarkCurrentPage(),
+        },
+        {
+          label: '管理书签',
+          accelerator: 'CmdOrCtrl+Shift+O',
+          click: () => openBookmarksManager(),
+        },
+      ],
+    },
+    {
+      label: '主页',
+      accelerator: 'Alt+Home',
+      click: () => goHome(),
+    },
+    {
+      label: '将当前页设为主页',
+      click: () => setCurrentPageAsHomepage(),
+    },
+    {
+      label: '设置主页…',
+      click: () => sendShellCommand('editHomepage'),
+    },
+    {
+      label: '历史记录',
+      accelerator: 'CmdOrCtrl+H',
+      click: () => openHistoryWindow(),
+    },
+    { type: 'separator' },
+    {
+      label: '在页面中查找',
+      accelerator: 'CmdOrCtrl+F',
+      click: () => sendShellCommand('openFind'),
+    },
+    {
+      label: '打印…',
+      accelerator: 'CmdOrCtrl+P',
+      click: () => tab?.view.webContents.print({}),
+    },
+    {
+      label: `缩放（${zoom}%）`,
+      submenu: [
+        { label: '放大', accelerator: 'CmdOrCtrl+=', click: () => zoomBy(0.1) },
+        { label: '缩小', accelerator: 'CmdOrCtrl+-', click: () => zoomBy(-0.1) },
+        { label: '实际大小', accelerator: 'CmdOrCtrl+0', click: () => setZoomFactor(1) },
+      ],
+    },
+    {
+      label: '全屏',
+      accelerator: 'F11',
+      click: () => mainWindow?.setFullScreen(!mainWindow.isFullScreen()),
+    },
+    { type: 'separator' },
+    {
+      label: rulesStore.hasPassword() ? '家长设置' : '家长设置（尚未完成）',
+      click: () => openParentWindow(!rulesStore.hasPassword()),
+    },
+    {
+      label: '检查更新',
+      click: () => openUpdateWindow(),
+    },
+    {
+      label: '已保存的密码',
+      click: () => openPasswordsWindow(),
+    },
+    {
+      label: '设为默认浏览器…',
+      click: () => {
+        void registerAsDefaultBrowser();
+      },
+    },
+    {
+      label: '菜单栏',
+      type: 'checkbox',
+      checked: menuBarVisible,
+      click: () => {
+        menuBarVisible = !menuBarVisible;
+        saveChromePrefs();
+        applyMenuBarVisibility();
+        notifyShell('shell:state', tabSnapshot());
+        refreshAppMenu();
+      },
+    },
+    {
+      label: '书签工具栏',
+      type: 'checkbox',
+      checked: bookmarksBarVisible,
+      click: () => {
+        bookmarksBarVisible = !bookmarksBarVisible;
+        saveChromePrefs();
+        layoutViews();
+        notifyShell('shell:state', tabSnapshot());
+        refreshAppMenu();
+      },
+    },
+    { type: 'separator' },
+    { label: '关于简行', click: () => showAboutDialog() },
+    { label: '退出', click: () => app.quit() },
+  ]);
+  menu.popup({
+    window: mainWindow,
+    x: Math.round(x),
+    y: Math.round(y),
+  });
+}
+
+function refreshAppMenu(): void {
+  Menu.setApplicationMenu(Menu.buildFromTemplate(buildAppMenuTemplate()));
+}
+
+function buildAppMenuTemplate(): MenuItemConstructorOptions[] {
+  const tab = activeTab();
+  return [
+    {
+      label: '文件',
+      submenu: [
+        {
+          label: '新建标签页',
+          accelerator: 'CmdOrCtrl+T',
+          click: () => createTab(),
+        },
+        {
+          label: '关闭标签页',
+          accelerator: 'CmdOrCtrl+W',
+          click: () => {
+            if (activeTabId) closeTab(activeTabId);
+          },
+        },
+        { type: 'separator' },
+        {
+          label: '打印…',
+          accelerator: 'CmdOrCtrl+P',
+          click: () => tab?.view.webContents.print({}),
+        },
+        { type: 'separator' },
+        { role: 'quit', label: '退出' },
+      ],
+    },
+    {
+      label: '编辑',
+      submenu: [
+        {
+          label: '在页面中查找',
+          accelerator: 'CmdOrCtrl+F',
+          click: () => sendShellCommand('openFind'),
+        },
+        {
+          label: '查找下一个',
+          accelerator: 'F3',
+          click: () => sendShellCommand('findNext'),
+        },
+        {
+          label: '查找上一个',
+          accelerator: 'Shift+F3',
+          click: () => sendShellCommand('findPrev'),
+        },
+      ],
+    },
+    {
+      label: '查看',
+      submenu: [
+        {
+          label: '书签工具栏',
+          type: 'checkbox',
+          checked: bookmarksBarVisible,
+          click: () => {
+            bookmarksBarVisible = !bookmarksBarVisible;
+            saveChromePrefs();
+            layoutViews();
+            notifyShell('shell:state', tabSnapshot());
+            refreshAppMenu();
+          },
+        },
+        {
+          label: '菜单栏',
+          type: 'checkbox',
+          checked: menuBarVisible,
+          click: () => {
+            menuBarVisible = !menuBarVisible;
+            saveChromePrefs();
+            applyMenuBarVisibility();
+            notifyShell('shell:state', tabSnapshot());
+            refreshAppMenu();
+          },
+        },
+        { type: 'separator' },
+        {
+          label: '放大',
+          accelerator: 'CmdOrCtrl+=',
+          click: () => zoomBy(0.1),
+        },
+        {
+          label: '缩小',
+          accelerator: 'CmdOrCtrl+-',
+          click: () => zoomBy(-0.1),
+        },
+        {
+          label: '实际大小',
+          accelerator: 'CmdOrCtrl+0',
+          click: () => setZoomFactor(1),
+        },
+        { type: 'separator' },
+        {
+          label: '主页',
+          accelerator: 'Alt+Home',
+          click: () => goHome(),
+        },
+        {
+          label: '将当前页设为主页',
+          click: () => setCurrentPageAsHomepage(),
+        },
+        {
+          label: '设置主页…',
+          click: () => sendShellCommand('editHomepage'),
+        },
+        {
+          label: '重新载入',
+          accelerator: 'CmdOrCtrl+R',
+          click: () => tab?.view.webContents.reload(),
+        },
+        {
+          label: '全屏',
+          accelerator: 'F11',
+          click: () => {
+            if (!mainWindow) return;
+            mainWindow.setFullScreen(!mainWindow.isFullScreen());
+          },
+        },
+      ],
+    },
+    {
+      label: '历史',
+      submenu: [
+        {
+          label: '后退',
+          accelerator: 'Alt+Left',
+          enabled: Boolean(tab?.canGoBack),
+          click: () => {
+            if (tab?.view.webContents.canGoBack()) tab.view.webContents.goBack();
+          },
+        },
+        {
+          label: '前进',
+          accelerator: 'Alt+Right',
+          enabled: Boolean(tab?.canGoForward),
+          click: () => {
+            if (tab?.view.webContents.canGoForward()) tab.view.webContents.goForward();
+          },
+        },
+        { type: 'separator' },
+        {
+          label: '显示全部历史',
+          accelerator: 'CmdOrCtrl+H',
+          click: () => openHistoryWindow(),
+        },
+      ],
+    },
+    {
+      label: '书签',
+      submenu: [
+        {
+          label: currentPageIsBookmarked()
+            ? '取消此页书签'
+            : '将此页添加为书签',
+          accelerator: 'CmdOrCtrl+D',
+          enabled: canBookmarkCurrentPage(),
+          click: () => bookmarkCurrentPage(),
+        },
+        {
+          label: '管理书签',
+          accelerator: 'CmdOrCtrl+Shift+O',
+          click: () => openBookmarksManager(),
+        },
+      ],
+    },
+    {
+      label: '工具',
+      submenu: [
+        {
+          label: '设置主页…',
+          click: () => sendShellCommand('editHomepage'),
+        },
+        {
+          label: '将当前页设为主页',
+          click: () => setCurrentPageAsHomepage(),
+        },
+        {
+          label: '已保存的密码',
+          click: () => openPasswordsWindow(),
+        },
+        { type: 'separator' },
+        {
+          label: '家长设置',
+          click: () => openParentWindow(!rulesStore.hasPassword()),
+        },
+        {
+          label: '检查更新',
+          click: () => openUpdateWindow(),
+        },
+        {
+          label: '设为默认浏览器…',
+          click: () => {
+            void registerAsDefaultBrowser();
+          },
+        },
+      ],
+    },
+    {
+      label: '帮助',
+      submenu: [
+        {
+          label: '关于简行',
+          click: () => showAboutDialog(),
+        },
+      ],
+    },
+  ];
+}
+
+function showAboutDialog(): void {
+  const options = {
+    type: 'info' as const,
+    title: `关于 ${APP_NAME}`,
+    message: APP_NAME,
+    detail: `版本 ${app.getVersion()}\n面向家庭的青少年浏览器。\n访问由家长配置组控制；历史记录仅家长可删除。`,
+    buttons: ['确定'],
+  };
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    void dialog.showMessageBox(mainWindow, options);
+  } else {
+    void dialog.showMessageBox(options);
+  }
 }
 
 function openBookmarksManager(): void {
@@ -508,6 +1289,208 @@ function registerIpc(): void {
     openParentWindow(!rulesStore.hasPassword());
   });
 
+  ipcMain.handle('shell:setChromeExtra', (_e, extra: number) => {
+    chromeExtraHeight = Math.max(0, Math.min(480, Math.round(Number(extra) || 0)));
+    layoutViews();
+    return { ok: true, chromeHeight: chromeHeight() };
+  });
+
+  ipcMain.handle('shell:getHomepage', () => getHomepage());
+
+  ipcMain.handle('shell:setHomepage', (_e, url: string) => setHomepage(String(url || '')));
+
+  ipcMain.handle('shell:setCurrentHomepage', () => setCurrentPageAsHomepage());
+
+  ipcMain.handle('shell:openHistory', () => {
+    openHistoryWindow();
+    return { ok: true };
+  });
+
+  ipcMain.handle('shell:popupAppMenu', (_e, x: number, y: number) => {
+    popupAppMenu(Number(x) || 0, Number(y) || 0);
+    return { ok: true };
+  });
+
+  ipcMain.handle('shell:toggleBookmarksBar', () => {
+    bookmarksBarVisible = !bookmarksBarVisible;
+    saveChromePrefs();
+    layoutViews();
+    notifyShell('shell:state', tabSnapshot());
+    refreshAppMenu();
+    return { ok: true, visible: bookmarksBarVisible };
+  });
+
+  ipcMain.handle('shell:toggleMenuBar', () => {
+    menuBarVisible = !menuBarVisible;
+    saveChromePrefs();
+    applyMenuBarVisibility();
+    notifyShell('shell:state', tabSnapshot());
+    refreshAppMenu();
+    return { ok: true, visible: menuBarVisible };
+  });
+
+  ipcMain.handle('shell:zoomIn', () => {
+    zoomBy(0.1);
+    return { ok: true, zoomFactor: currentZoomFactor() };
+  });
+
+  ipcMain.handle('shell:zoomOut', () => {
+    zoomBy(-0.1);
+    return { ok: true, zoomFactor: currentZoomFactor() };
+  });
+
+  ipcMain.handle('shell:zoomReset', () => {
+    setZoomFactor(1);
+    return { ok: true, zoomFactor: currentZoomFactor() };
+  });
+
+  ipcMain.handle(
+    'shell:findInPage',
+    (_e, text: string, options?: { forward?: boolean; findNext?: boolean }) => {
+      findInActiveTab(
+        text,
+        options?.forward !== false,
+        options?.findNext !== false
+      );
+      return { ok: true };
+    }
+  );
+
+  ipcMain.handle('shell:stopFindInPage', () => {
+    const tab = activeTab();
+    tab?.view.webContents.stopFindInPage('clearSelection');
+    notifyShell('shell:findResult', null);
+    return { ok: true };
+  });
+
+  ipcMain.handle('shell:print', () => {
+    activeTab()?.view.webContents.print({});
+    return { ok: true };
+  });
+
+  ipcMain.handle('shell:toggleFullscreen', () => {
+    if (!mainWindow) return { ok: false };
+    mainWindow.setFullScreen(!mainWindow.isFullScreen());
+    return { ok: true, fullscreen: mainWindow.isFullScreen() };
+  });
+
+  ipcMain.handle('shell:quit', () => {
+    app.quit();
+    return { ok: true };
+  });
+
+  ipcMain.handle('shell:setAsDefaultBrowser', () => registerAsDefaultBrowser());
+
+  ipcMain.handle('shell:about', () => {
+    showAboutDialog();
+    return { ok: true, version: app.getVersion() };
+  });
+
+  ipcMain.handle('shell:appInfo', () => ({
+    name: APP_NAME,
+    version: app.getVersion(),
+  }));
+
+  ipcMain.handle('sitePassword:lookup', (e) => {
+    const origin = httpOriginFromEvent(e);
+    if (!origin) return null;
+    return sitePasswordsStore.lookup(origin);
+  });
+
+  ipcMain.handle(
+    'sitePassword:submitted',
+    (e, input: { username?: string; password?: string }) => {
+      const origin = httpOriginFromEvent(e);
+      const username = String(input?.username || '').trim();
+      const password = String(input?.password || '');
+      if (!origin || !username || !password) return { offer: false };
+      const existing = sitePasswordsStore.find(origin, username);
+      if (existing && existing.password === password) return { offer: false };
+      sendShellCommand('offerSavePassword', {
+        origin,
+        host: existing?.host || new URL(origin).hostname,
+        username,
+        password,
+        update: Boolean(existing),
+      });
+      return { offer: true };
+    }
+  );
+
+  ipcMain.handle(
+    'sitePassword:saveOffer',
+    (
+      _e,
+      input: { origin?: string; username?: string; password?: string }
+    ) => {
+      const origin = String(input?.origin || '');
+      try {
+        const u = new URL(origin);
+        if (u.protocol !== 'http:' && u.protocol !== 'https:') {
+          return { ok: false, error: '无效地址' };
+        }
+      } catch {
+        return { ok: false, error: '无效地址' };
+      }
+      const saved = sitePasswordsStore.save(
+        origin,
+        String(input?.username || ''),
+        String(input?.password || '')
+      );
+      if (!saved) return { ok: false, error: '保存失败' };
+      notifyPasswordsChanged();
+      return { ok: true };
+    }
+  );
+
+  ipcMain.handle('sitePassword:list', () => ({
+    entries: sitePasswordsStore.listPublic(),
+  }));
+
+  ipcMain.handle('sitePassword:remove', (_e, id: string) => {
+    const ok = sitePasswordsStore.remove(String(id || ''));
+    if (ok) notifyPasswordsChanged();
+    return { ok };
+  });
+
+  ipcMain.handle('history:list', (_e, query?: string) => {
+    return { ok: true, entries: historyStore.list(query), count: historyStore.count() };
+  });
+
+  ipcMain.handle('history:open', async (_e, id: string) => {
+    const entry = historyStore.get(id);
+    if (!entry) return { ok: false, error: '记录不存在' };
+    const tab = activeTab();
+    if (tab) await guardedLoad(tab, entry.url);
+    else createTab(entry.url);
+    return { ok: true };
+  });
+
+  ipcMain.handle('history:canDelete', () => ({
+    ok: true,
+    canDeleteWithoutPassword: parentUnlocked || !rulesStore.hasPassword(),
+    hasPassword: rulesStore.hasPassword(),
+    parentUnlocked,
+  }));
+
+  ipcMain.handle('history:remove', (_e, id: string, password?: string) => {
+    const auth = authorizeHistoryDelete(password);
+    if (!auth.ok) return auth;
+    const result = historyStore.remove(id);
+    if (result.ok) notifyHistory();
+    return result;
+  });
+
+  ipcMain.handle('history:clear', (_e, password?: string) => {
+    const auth = authorizeHistoryDelete(password);
+    if (!auth.ok) return auth;
+    const result = historyStore.clear();
+    notifyHistory();
+    return result;
+  });
+
+  registerUpdateIpc();
+
   ipcMain.handle('bookmarks:snapshot', () => bookmarksStore.snapshot());
 
   ipcMain.handle('bookmarks:toggleCurrent', () => {
@@ -585,6 +1568,123 @@ function registerIpc(): void {
     openBookmarksManager();
   });
 
+  // Bookmark sync: account login only, no parent unlock required
+  ipcMain.handle('bookmarks:appVersion', () => app.getVersion());
+  ipcMain.handle('bookmarks:account', () => accountStore.getPublic());
+
+  ipcMain.handle('bookmarks:syncStatus', async () => {
+    if (!accountStore.isLoggedIn()) {
+      return { ok: false, error: '请先在家长设置中登录账号', loggedIn: false };
+    }
+    const localRevision = bookmarksStore.getRevision();
+    const localNodes = bookmarksStore.exportForSync();
+    try {
+      const remote = await syncClient.pullBookmarks();
+      if (!remote.ok) {
+        return {
+          ok: false,
+          error: remote.error || '无法读取服务器收藏夹',
+          loggedIn: true,
+          localRevision,
+          serverRevision: null,
+        };
+      }
+      const serverRevision = remote.revision || 0;
+      const contentEqual =
+        JSON.stringify(localNodes) === JSON.stringify(remote.nodes || []);
+      let status = '本地收藏夹已是最新';
+      if (!contentEqual) {
+        status =
+          serverRevision > localRevision
+            ? '服务器收藏夹有更新，请拉取'
+            : '本地收藏夹有未上传更改，请上传';
+      }
+      return {
+        ok: true,
+        loggedIn: true,
+        localRevision,
+        serverRevision,
+        contentEqual,
+        status,
+        username: accountStore.getPublic().username,
+      };
+    } catch (e) {
+      return {
+        ok: false,
+        loggedIn: true,
+        error: e instanceof Error ? e.message : '检查失败',
+        localRevision,
+        serverRevision: null,
+      };
+    }
+  });
+
+  ipcMain.handle('bookmarks:pushSync', async () => {
+    if (!accountStore.isLoggedIn()) {
+      return { ok: false, error: '请先在家长设置中登录账号' };
+    }
+    const localNodes = bookmarksStore.exportForSync();
+    const localRevision = bookmarksStore.getRevision();
+    const remote = await syncClient.pullBookmarks();
+    if (!remote.ok) {
+      return { ok: false, error: remote.error || '无法读取云端收藏夹' };
+    }
+    if (JSON.stringify(localNodes) === JSON.stringify(remote.nodes || [])) {
+      return {
+        ok: true,
+        unchanged: true,
+        revision: remote.revision || 0,
+        snapshot: bookmarksStore.snapshot(),
+      };
+    }
+    const result = await syncClient.pushBookmarks(localNodes, localRevision);
+    if (!result.ok) return result;
+    bookmarksStore.setRevision(result.revision || localRevision);
+    notifyShell('shell:state', tabSnapshot());
+    notifyBookmarks();
+    return {
+      ok: true,
+      unchanged: false,
+      revision: result.revision,
+      snapshot: bookmarksStore.snapshot(),
+    };
+  });
+
+  ipcMain.handle('bookmarks:pullSync', async () => {
+    if (!accountStore.isLoggedIn()) {
+      return { ok: false, error: '请先在家长设置中登录账号' };
+    }
+    const localNodes = bookmarksStore.exportForSync();
+    const pulled = await syncClient.pullBookmarks();
+    if (!pulled.ok) {
+      return { ok: false, error: pulled.error || '拉取收藏夹失败' };
+    }
+    if (JSON.stringify(localNodes) === JSON.stringify(pulled.nodes || [])) {
+      if (typeof pulled.revision === 'number') {
+        bookmarksStore.setRevision(pulled.revision);
+      }
+      return {
+        ok: true,
+        unchanged: true,
+        revision: pulled.revision || 0,
+        snapshot: bookmarksStore.snapshot(),
+      };
+    }
+    const applied = bookmarksStore.replaceFromSync(
+      (pulled.nodes || []) as Partial<import('./bookmarks-store').BookmarkNode>[],
+      pulled.revision
+    );
+    if (!applied.ok) return applied;
+    notifyShell('shell:state', tabSnapshot());
+    notifyBookmarks();
+    return {
+      ok: true,
+      unchanged: false,
+      revision: pulled.revision,
+      snapshot: applied.snapshot,
+    };
+  });
+
   // Parent IPC
   ipcMain.handle('parent:getMeta', () => ({
     forceSetup: !rulesStore.hasPassword(),
@@ -612,6 +1712,13 @@ function registerIpc(): void {
   ipcMain.handle('parent:changePassword', (_e, current: string, next: string) => {
     if (!parentUnlocked) return { ok: false, error: '未解锁' };
     return rulesStore.changePassword(current, next);
+  });
+
+  ipcMain.handle('parent:setFilteringEnabled', (_e, enabled: boolean) => {
+    if (!parentUnlocked) return { ok: false, error: '未解锁' };
+    const result = rulesStore.setFilteringEnabled(Boolean(enabled));
+    notifyShell('shell:state', tabSnapshot());
+    return result;
   });
 
   ipcMain.handle('parent:getRules', () => {
@@ -676,49 +1783,195 @@ function registerIpc(): void {
     return rulesStore.removeBiliUp(groupId, mid);
   });
 
+  // Watch requests: child can create from block page; approve/reject need parent unlock
+  ipcMain.handle(
+    'watchRequest:create',
+    async (
+      e,
+      input: {
+        url: string;
+        reason?: string;
+        mid?: string;
+        bvid?: string;
+        aid?: string;
+        title?: string;
+      }
+    ) => {
+      const senderUrl = e.sender.getURL() || '';
+      if (!senderUrl.includes('/block/')) {
+        return { ok: false, error: '仅可从拦截页发起申请' };
+      }
+      return watchRequestsStore.create(input || { url: '' });
+    }
+  );
+
+  ipcMain.handle('watchRequest:list', () => {
+    if (!parentUnlocked) return { ok: false, error: '未解锁', requests: [] };
+    return {
+      ok: true,
+      requests: watchRequestsStore.list(),
+      pendingCount: watchRequestsStore.pendingCount(),
+    };
+  });
+
+  ipcMain.handle('watchRequest:pendingCount', () => {
+    // Safe to show badge count without unlock when parent window is open after login gate
+    return { ok: true, count: watchRequestsStore.pendingCount() };
+  });
+
+  ipcMain.handle('watchRequest:reject', (_e, id: string) => {
+    if (!parentUnlocked) return { ok: false, error: '未解锁' };
+    return watchRequestsStore.reject(id);
+  });
+
+  ipcMain.handle('watchRequest:approve', async (_e, id: string) => {
+    if (!parentUnlocked) return { ok: false, error: '未解锁' };
+    const req = watchRequestsStore.get(id);
+    if (!req) return { ok: false, error: '申请不存在' };
+    if (req.status !== 'pending') return { ok: false, error: '该申请已处理' };
+
+    let host = req.host;
+    try {
+      host = host || new URL(req.url).hostname.toLowerCase();
+    } catch {
+      // ignore
+    }
+    const isBili =
+      !!host &&
+      (host === 'bilibili.com' || host.endsWith('.bilibili.com'));
+
+    let mid = req.mid;
+    if (isBili && !mid) {
+      const { resolveVideoOwner, parseBiliVideoId } = await import(
+        './bili-resolver'
+      );
+      try {
+        const u = new URL(req.url);
+        const ids = parseBiliVideoId(u.pathname);
+        const owner = await resolveVideoOwner(
+          req.bvid || ids?.bvid,
+          req.aid || ids?.aid
+        );
+        if (owner.ok && owner.mid) mid = owner.mid;
+      } catch {
+        // ignore
+      }
+    }
+
+    let rules = rulesStore.getRaw();
+    let addedHost: string | undefined;
+
+    if (isBili && mid) {
+      const biliGroup = rules.groups.find(
+        (g) => g.enabled && g.extensionId === 'bilibili'
+      );
+      if (!biliGroup) {
+        return { ok: false, error: '没有启用的 B 站配置组' };
+      }
+      const note =
+        req.title && req.title.trim()
+          ? `访问申请：${req.title.trim().slice(0, 40)}`
+          : '访问申请';
+      const added = rulesStore.addBiliUp(biliGroup.id, mid, note);
+      if (!added.ok) return added;
+      rules = added.rules!;
+    } else if (!isBili && host) {
+      // Add site host to a generic whitelist group
+      let group = rules.groups.find(
+        (g) => g.enabled && g.extensionId === 'none' && g.name === '访问申请'
+      );
+      if (!group) {
+        group = rules.groups.find(
+          (g) => g.enabled && g.extensionId === 'none'
+        );
+      }
+      if (!group) {
+        const created = rulesStore.createGroup({
+          name: '访问申请',
+          extensionId: 'none',
+          useSuggestedHosts: false,
+        });
+        if (!created.ok || !created.group) {
+          return { ok: false, error: created.error || '无法创建配置组' };
+        }
+        group = created.group;
+        rules = created.rules!;
+      }
+      const added = rulesStore.addHost(group.id, host);
+      if (!added.ok) return added;
+      rules = added.rules!;
+      addedHost = host;
+    }
+
+    const marked = watchRequestsStore.markApproved(id);
+    if (!marked.ok) return marked;
+
+    const tab = tabs.find((t) => t.id === activeTabId) || tabs[0];
+    if (tab) {
+      void guardedLoad(tab, req.url);
+    }
+
+    return {
+      ok: true,
+      request: marked.request,
+      rules,
+      mid: mid || undefined,
+      host: addedHost,
+    };
+  });
+
   ipcMain.handle('account:get', () => {
-    if (!parentUnlocked) return null;
     return accountStore.getPublic();
   });
 
   ipcMain.handle('account:syncStatus', async () => {
-    if (!parentUnlocked) return { ok: false, error: '未解锁' };
     if (!accountStore.isLoggedIn()) {
-      return { ok: false, error: '请先登录账号' };
+      return { ok: false, error: '请先登录账号', loggedIn: false };
     }
     const account = accountStore.getPublic();
     const localRevision = account.lastRevision || 0;
     const localGroups = rulesStore.exportGroups();
-    const remote = await syncClient.pull({ touch: false });
-    if (!remote.ok) {
+    try {
+      const remote = await syncClient.pull({ touch: false });
+      if (!remote.ok) {
+        return {
+          ok: false,
+          error: remote.error || '无法读取服务器版本',
+          localRevision,
+          serverRevision: null,
+          contentEqual: false,
+          lastSyncAt: account.lastSyncAt || 0,
+        };
+      }
+      const serverRevision = remote.revision || 0;
+      const contentEqual = groupsPayloadEqual(localGroups, remote.groups || []);
+      let status = '本地已是最新配置';
+      if (!contentEqual) {
+        if (serverRevision > localRevision) {
+          status = '服务器有新版本，请拉取';
+        } else {
+          status = '本地有未上传更改，请上传';
+        }
+      }
+      return {
+        ok: true,
+        localRevision,
+        serverRevision,
+        contentEqual,
+        status,
+        lastSyncAt: account.lastSyncAt || 0,
+        serverUpdatedAt: remote.updatedAt || 0,
+      };
+    } catch (e) {
       return {
         ok: false,
-        error: remote.error || '无法读取服务器版本',
+        error: e instanceof Error ? e.message : '检查服务器版本失败',
         localRevision,
         serverRevision: null,
         contentEqual: false,
         lastSyncAt: account.lastSyncAt || 0,
       };
     }
-    const serverRevision = remote.revision || 0;
-    const contentEqual = groupsPayloadEqual(localGroups, remote.groups || []);
-    let status = '本地已是最新配置';
-    if (!contentEqual) {
-      if (serverRevision > localRevision) {
-        status = '服务器有新版本，请拉取';
-      } else {
-        status = '本地有未上传更改，请上传';
-      }
-    }
-    return {
-      ok: true,
-      localRevision,
-      serverRevision,
-      contentEqual,
-      status,
-      lastSyncAt: account.lastSyncAt || 0,
-      serverUpdatedAt: remote.updatedAt || 0,
-    };
   });
 
   ipcMain.handle(
@@ -727,7 +1980,6 @@ function registerIpc(): void {
       _e,
       input: { username: string; password: string; serverUrl?: string }
     ) => {
-      if (!parentUnlocked) return { ok: false, error: '未解锁' };
       try {
         return await syncClient.register(
           input.username,
@@ -749,7 +2001,6 @@ function registerIpc(): void {
       _e,
       input: { username: string; password: string; serverUrl?: string }
     ) => {
-      if (!parentUnlocked) return { ok: false, error: '未解锁' };
       try {
         return await syncClient.login(
           input.username,
@@ -766,13 +2017,14 @@ function registerIpc(): void {
   );
 
   ipcMain.handle('account:logout', async () => {
-    if (!parentUnlocked) return { ok: false, error: '未解锁' };
     await syncClient.logout();
     return { ok: true, account: accountStore.getPublic() };
   });
 
   ipcMain.handle('account:push', async () => {
-    if (!parentUnlocked) return { ok: false, error: '未解锁' };
+    if (!parentUnlocked) {
+      return { ok: false, error: '上传访问配置需要先输入家长密码解锁' };
+    }
     if (!accountStore.isLoggedIn()) {
       return { ok: false, error: '请先登录账号' };
     }
@@ -801,7 +2053,6 @@ function registerIpc(): void {
   });
 
   ipcMain.handle('account:pull', async () => {
-    if (!parentUnlocked) return { ok: false, error: '未解锁' };
     if (!accountStore.isLoggedIn()) {
       return { ok: false, error: '请先登录账号' };
     }
@@ -834,10 +2085,17 @@ function registerIpc(): void {
 }
 
 app.whenReady().then(() => {
+  if (!gotSingleInstanceLock) return;
+  pendingLaunchUrl = extractLaunchUrl(process.argv) || pendingLaunchUrl;
   rulesStore = new RulesStore();
   bookmarksStore = new BookmarksStore();
   accountStore = new AccountStore();
+  watchRequestsStore = new WatchRequestsStore();
+  historyStore = new HistoryStore();
+  sitePasswordsStore = new SitePasswordsStore();
   syncClient = new SyncClient(accountStore);
+  loadChromePrefs();
+  refreshAppMenu();
   registerIpc();
 
   // Block permission prompts that could be abused

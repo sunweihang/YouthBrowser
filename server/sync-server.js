@@ -17,6 +17,7 @@ const PORT = Number(process.env.PORT || 3910);
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
 const CONFIGS_DIR = path.join(DATA_DIR, 'configs');
+const BOOKMARKS_DIR = path.join(DATA_DIR, 'bookmarks');
 const TOKENS_FILE = path.join(DATA_DIR, 'tokens.json');
 const TOKEN_TTL_MS = (Number(process.env.TOKEN_TTL_DAYS) || 30) * 86400000;
 const SCRYPT = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
@@ -24,6 +25,7 @@ const SCRYPT = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
 function ensureDirs() {
   fs.mkdirSync(DATA_DIR, { recursive: true });
   fs.mkdirSync(CONFIGS_DIR, { recursive: true });
+  fs.mkdirSync(BOOKMARKS_DIR, { recursive: true });
   if (!fs.existsSync(USERS_FILE)) fs.writeFileSync(USERS_FILE, '{}', 'utf8');
   if (!fs.existsSync(TOKENS_FILE)) fs.writeFileSync(TOKENS_FILE, '{}', 'utf8');
 }
@@ -131,6 +133,10 @@ function authUser(req) {
 
 function configPath(username) {
   return path.join(CONFIGS_DIR, `${username}.json`);
+}
+
+function bookmarksPath(username) {
+  return path.join(BOOKMARKS_DIR, `${username}.json`);
 }
 
 async function handle(req, res) {
@@ -262,6 +268,61 @@ async function handle(req, res) {
         updatedAt: Date.now(),
       };
       writeJson(configPath(auth.username), next);
+      return send(res, 200, {
+        ok: true,
+        revision: next.revision,
+        updatedAt: next.updatedAt,
+      });
+    }
+
+    // Bookmarks sync (no parental permission; account login only)
+    if (req.method === 'GET' && pathname === '/sync/bookmarks') {
+      const auth = authUser(req);
+      if (!auth) return send(res, 401, { ok: false, error: '未登录' });
+      const cfg = readJson(bookmarksPath(auth.username), {
+        nodes: [],
+        revision: 0,
+        updatedAt: 0,
+      });
+      return send(res, 200, {
+        ok: true,
+        nodes: Array.isArray(cfg.nodes) ? cfg.nodes : [],
+        revision: cfg.revision || 0,
+        updatedAt: cfg.updatedAt || 0,
+      });
+    }
+
+    if (req.method === 'PUT' && pathname === '/sync/bookmarks') {
+      const auth = authUser(req);
+      if (!auth) return send(res, 401, { ok: false, error: '未登录' });
+      const body = await readBody(req);
+      if (!Array.isArray(body.nodes)) {
+        return send(res, 400, { ok: false, error: 'nodes 必须是数组' });
+      }
+      const current = readJson(bookmarksPath(auth.username), {
+        nodes: [],
+        revision: 0,
+        updatedAt: 0,
+      });
+      const clientRev = Number(body.revision);
+      if (
+        Number.isFinite(clientRev) &&
+        clientRev > 0 &&
+        clientRev < (current.revision || 0)
+      ) {
+        return send(res, 409, {
+          ok: false,
+          error: '服务器收藏夹更新，请先拉取再上传',
+          revision: current.revision,
+          updatedAt: current.updatedAt,
+        });
+      }
+      const next = {
+        nodes: body.nodes,
+        revision: (current.revision || 0) + 1,
+        updatedAt: Date.now(),
+      };
+      writeJson(bookmarksPath(auth.username), next);
       return send(res, 200, {
         ok: true,
         revision: next.revision,

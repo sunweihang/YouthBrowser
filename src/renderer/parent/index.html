@@ -12,20 +12,64 @@
     <section id="setupPanel" class="auth-card hidden">
       <p class="brand">简行浏览器</p>
       <h1>首次设置</h1>
-      <p class="sub">创建家长密码后，才能管理配置组。</p>
       <label>新密码<input id="setupPass" type="password" autocomplete="new-password" /></label>
       <label>确认密码<input id="setupPass2" type="password" autocomplete="new-password" /></label>
       <p class="error" id="setupError"></p>
       <button type="button" id="setupBtn" class="primary">创建并进入设置</button>
     </section>
 
+    <section id="accountGatePanel" class="auth-card hidden">
+      <p class="brand">简行浏览器</p>
+      <h1>账号登录</h1>
+      <form id="gateLoginForm" class="stack-form">
+        <label>用户名
+          <input id="gateLoginUser" type="text" autocomplete="username" />
+        </label>
+        <label>密码
+          <input id="gateLoginPass" type="password" autocomplete="current-password" />
+        </label>
+        <p class="error" id="gateLoginError"></p>
+        <button type="submit" class="primary">登录</button>
+      </form>
+      <p class="sub gate-switch">
+        没有账号？
+        <button type="button" class="link-btn" id="gateGotoRegister">去注册</button>
+      </p>
+    </section>
+
+    <section id="accountRegisterPanel" class="auth-card hidden">
+      <p class="brand">简行浏览器</p>
+      <h1>注册账号</h1>
+      <form id="gateRegisterForm" class="stack-form">
+        <label>用户名
+          <input id="gateRegisterUser" type="text" autocomplete="username" />
+        </label>
+        <label>密码
+          <input id="gateRegisterPass" type="password" autocomplete="new-password" />
+        </label>
+        <label>确认密码
+          <input id="gateRegisterPass2" type="password" autocomplete="new-password" />
+        </label>
+        <p class="error" id="gateRegisterError"></p>
+        <button type="submit" class="primary">注册并登录</button>
+      </form>
+      <p class="sub gate-switch">
+        已有账号？
+        <button type="button" class="link-btn" id="gateGotoLogin">去登录</button>
+      </p>
+    </section>
+
     <section id="unlockPanel" class="auth-card hidden">
       <p class="brand">简行浏览器</p>
       <h1>家长验证</h1>
-      <p class="sub">输入密码以管理配置组。</p>
+      <p class="sub">已登录 <strong id="unlockAccountName">—</strong></p>
       <label>家长密码<input id="unlockPass" type="password" autocomplete="current-password" /></label>
       <p class="error" id="unlockError"></p>
-      <button type="button" id="unlockBtn" class="primary">解锁</button>
+      <div class="row-actions unlock-actions">
+        <button type="button" id="unlockBtn" class="primary">解锁管理</button>
+        <button type="button" id="syncOnlyBtn">更新配置</button>
+      </div>
+      <button type="button" id="gateLogoutBtn" class="link-btn gate-logout">退出登录</button>
     </section>
   </div>
 
@@ -38,6 +82,11 @@
       <nav class="nav-list" aria-label="设置分类">
         <button type="button" class="nav-item active" data-page="overview">概览</button>
         <button type="button" class="nav-item" data-page="groups">配置组</button>
+        <button type="button" class="nav-item" data-page="requests">
+          访问申请
+          <span class="nav-badge hidden" id="requestBadge">0</span>
+        </button>
+        <button type="button" class="nav-item" data-page="history">浏览历史</button>
         <button type="button" class="nav-item" data-page="sync">账号与同步</button>
         <button type="button" class="nav-item" data-page="security">账号安全</button>
       </nav>
@@ -48,8 +97,19 @@
       <section class="page active" id="page-overview" data-page="overview">
         <header class="page-head">
           <h2>概览</h2>
-          <p class="sub">访问控制按「配置组」管理。每个组可绑定域名，并可挂载站点扩展（如 B 站 UP 过滤）。</p>
         </header>
+        <div class="card filter-switch-card">
+          <div class="filter-switch-row">
+            <div>
+              <h3>访问过滤</h3>
+            </div>
+            <label class="switch" title="访问过滤">
+              <input id="filterEnabledSwitch" type="checkbox" />
+              <span class="switch-track"></span>
+              <span class="switch-text" id="filterSwitchText">关</span>
+            </label>
+          </div>
+        </div>
         <div class="stat-grid">
           <article class="stat">
             <p class="stat-label">配置组</p>
@@ -61,15 +121,11 @@
             <p class="stat-value" id="statEnabled">0</p>
             <button type="button" class="link-btn" data-goto="groups">查看 →</button>
           </article>
-        </div>
-        <div class="card tip-card">
-          <h3>怎么用</h3>
-          <ol class="tips">
-            <li>在「配置组」新建一组（例如命名为「B 站」）。</li>
-            <li>选择扩展类型：普通站点选「无」；哔哩哔哩选「B 站」。</li>
-            <li>在组内增删域名；若选了 B 站扩展，再配置允许的 UP。</li>
-            <li>未匹配任何启用配置组的网站一律拦截。</li>
-          </ol>
+          <article class="stat">
+            <p class="stat-label">浏览记录</p>
+            <p class="stat-value" id="statHistory">0</p>
+            <button type="button" class="link-btn" data-goto="history">去管理 →</button>
+          </article>
         </div>
       </section>
 
@@ -78,14 +134,13 @@
           <header class="page-head page-head-row">
             <div>
               <h2>配置组</h2>
-              <p class="sub">管理全部访问配置组。开启后生效，点「编辑」进入详细配置。</p>
             </div>
             <button type="button" class="primary" id="openCreateBtn">新建</button>
           </header>
 
           <div class="card list-card">
             <ul id="groupList" class="group-list"></ul>
-            <p class="empty" id="groupEmpty">还没有配置组。点击右上角「新建」添加。</p>
+            <p class="empty" id="groupEmpty">暂无配置组</p>
           </div>
         </div>
 
@@ -103,7 +158,6 @@
               <label>扩展类型
                 <select id="detailExt"></select>
               </label>
-              <p class="help">切换扩展会清空该扩展专属配置（如 UP 列表），域名会保留。启停请在列表页开关。</p>
               <div class="row-actions">
                 <button type="submit" class="primary">保存</button>
                 <button type="button" id="deleteGroupBtn" class="danger-solid">删除配置组</button>
@@ -115,7 +169,6 @@
 
           <div class="card">
             <h3>域名</h3>
-            <p class="help">支持精确 host，或 <code>*.example.com</code>。</p>
             <form id="detailHostForm" class="row">
               <input id="detailHostInput" type="text" placeholder="例如 www.example.com" />
               <button type="submit" class="primary">添加</button>
@@ -126,7 +179,6 @@
 
           <div class="card hidden" id="biliExtPanel">
             <h3>B 站扩展 · UP 白名单</h3>
-            <p class="help">仅允许这些 UP 的空间与视频；首页/搜索等默认拦截。</p>
             <form id="detailUpForm" class="stack-form">
               <label>空间链接或 mid
                 <input id="detailUpInput" type="text" placeholder="https://space.bilibili.com/123 或 mid" />
@@ -138,7 +190,7 @@
             </form>
             <p class="error" id="detailUpError"></p>
             <ul id="detailUpList" class="list"></ul>
-            <p class="empty" id="detailUpEmpty">未添加 UP 时，匹配到本组成员的 B 站内容都会被拦截。</p>
+            <p class="empty" id="detailUpEmpty">暂无 UP</p>
           </div>
         </div>
       </section>
@@ -157,9 +209,8 @@
             </label>
             <label class="check-row" id="suggestHostsRow">
               <input id="useSuggestedHosts" type="checkbox" checked />
-              <span>使用该扩展的推荐域名（可稍后修改）</span>
+              <span>使用推荐域名</span>
             </label>
-            <p class="help" id="extHint"></p>
             <p class="error" id="createGroupError"></p>
             <div class="row-actions">
               <button type="submit" class="primary">创建</button>
@@ -168,6 +219,42 @@
           </form>
         </div>
       </div>
+
+      <section class="page" id="page-requests" data-page="requests">
+        <header class="page-head">
+          <h2>访问申请</h2>
+        </header>
+        <p class="error" id="requestsError"></p>
+        <p class="ok" id="requestsOk"></p>
+        <div class="card">
+          <h3>待处理</h3>
+          <div id="pendingRequestList" class="request-list"></div>
+          <p class="empty hidden" id="pendingRequestEmpty">暂无待处理申请</p>
+        </div>
+        <div class="card" style="margin-top:14px">
+          <h3>最近处理</h3>
+          <div id="resolvedRequestList" class="request-list"></div>
+          <p class="empty hidden" id="resolvedRequestEmpty">暂无记录</p>
+        </div>
+      </section>
+
+      <section class="page" id="page-history" data-page="history">
+        <header class="page-head page-head-row">
+          <div>
+            <h2>浏览历史</h2>
+          </div>
+          <button type="button" class="danger-solid" id="clearHistoryBtn">清空全部</button>
+        </header>
+        <p class="error" id="historyError"></p>
+        <p class="ok" id="historyOk"></p>
+        <div class="card">
+          <form id="historySearchForm" class="row">
+            <input id="historySearch" type="search" placeholder="搜索标题或网址" autocomplete="off" />
+          </form>
+          <div id="historyList" class="request-list"></div>
+          <p class="empty" id="historyEmpty">暂无浏览记录</p>
+        </div>
+      </section>
 
       <section class="page" id="page-sync" data-page="sync">
         <header class="page-head">
@@ -240,7 +327,6 @@
       <section class="page" id="page-security" data-page="security">
         <header class="page-head">
           <h2>账号安全</h2>
-          <p class="sub">家长密码用于打开本设置窗口。</p>
         </header>
         <div class="card">
           <h3>修改家长密码</h3>

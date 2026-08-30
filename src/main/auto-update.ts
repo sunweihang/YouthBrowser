@@ -1,16 +1,164 @@
-import { app, dialog, BrowserWindow } from 'electron';
+import { app, BrowserWindow, ipcMain } from 'electron';
 import { autoUpdater } from 'electron-updater';
 
 const UPDATE_FEED =
   process.env.JIANXING_UPDATE_URL ||
   'http://182.92.120.159/downloads/jianxing/';
 
+export type UpdateUiStatus =
+  | 'idle'
+  | 'checking'
+  | 'available'
+  | 'downloading'
+  | 'ready'
+  | 'uptodate'
+  | 'error';
+
+export type UpdateState = {
+  currentVersion: string;
+  latestVersion: string | null;
+  status: UpdateUiStatus;
+  percent: number;
+  transferred: number;
+  total: number;
+  bytesPerSecond: number;
+  message: string;
+  error: string | null;
+  unpackaged: boolean;
+};
+
+let getMainWindow: () => BrowserWindow | null = () => null;
 let checking = false;
 let downloaded = false;
+let started = false;
 
-export function startAutoUpdater(getMainWindow: () => BrowserWindow | null): void {
+const state: UpdateState = {
+  currentVersion: app.getVersion(),
+  latestVersion: null,
+  status: 'idle',
+  percent: 0,
+  transferred: 0,
+  total: 0,
+  bytesPerSecond: 0,
+  message: '',
+  error: null,
+  unpackaged: !app.isPackaged,
+};
+
+function broadcast(): void {
+  const payload = { ...state };
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) {
+      win.webContents.send('update:status', payload);
+    }
+  }
+}
+
+function setState(patch: Partial<UpdateState>): void {
+  Object.assign(state, patch);
+  broadcast();
+}
+
+export function getUpdateState(): UpdateState {
+  return { ...state };
+}
+
+export async function checkForAppUpdates(manual = false): Promise<UpdateState> {
   if (!app.isPackaged) {
-    console.log('[update] skip in unpackaged mode');
+    setState({
+      unpackaged: true,
+      status: 'uptodate',
+      message: '开发模式不检查更新',
+      error: null,
+    });
+    return getUpdateState();
+  }
+
+  if (downloaded) {
+    setState({
+      status: 'ready',
+      percent: 100,
+      message: state.latestVersion
+        ? `新版本 ${state.latestVersion} 已下载，可立即安装`
+        : '更新已下载，可立即安装',
+    });
+    return getUpdateState();
+  }
+
+  // Allow manual re-check even if a previous check hung.
+  if (checking && !manual) {
+    return getUpdateState();
+  }
+  if (state.status === 'downloading' && !manual) {
+    return getUpdateState();
+  }
+
+  checking = true;
+  setState({
+    status: 'checking',
+    message: manual ? '正在检查更新…' : '正在检查更新…',
+    error: null,
+  });
+
+  try {
+    const result = await autoUpdater.checkForUpdates();
+    // If nothing available, update-not-available may have already run.
+    if (!result && state.status === 'checking') {
+      checking = false;
+      setState({
+        status: 'uptodate',
+        message: '当前已是最新版本',
+      });
+    }
+  } catch (err) {
+    checking = false;
+    setState({
+      status: 'error',
+      error: err instanceof Error ? err.message : '检查更新失败',
+      message: '检查更新失败',
+    });
+  }
+
+  return getUpdateState();
+}
+
+export function installAppUpdate(): { ok: boolean; error?: string } {
+  if (!downloaded) {
+    return { ok: false, error: '更新尚未下载完成' };
+  }
+  try {
+    autoUpdater.quitAndInstall(false, true);
+    return { ok: true };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : '安装失败',
+    };
+  }
+}
+
+export function registerUpdateIpc(): void {
+  ipcMain.handle('update:getStatus', () => getUpdateState());
+  ipcMain.handle('update:check', () => checkForAppUpdates(true));
+  ipcMain.handle('update:install', () => installAppUpdate());
+}
+
+export function startAutoUpdater(
+  getWin: () => BrowserWindow | null
+): void {
+  getMainWindow = getWin;
+  state.currentVersion = app.getVersion();
+  state.unpackaged = !app.isPackaged;
+
+  if (started) return;
+  started = true;
+
+  if (!app.isPackaged) {
+    setState({
+      unpackaged: true,
+      status: 'idle',
+      message: '开发模式',
+    });
     return;
   }
 
@@ -18,73 +166,84 @@ export function startAutoUpdater(getMainWindow: () => BrowserWindow | null): voi
   autoUpdater.autoInstallOnAppQuit = true;
   // App is not code-signed; allow updates without publisher check.
   autoUpdater.verifyUpdateCodeSignature = false;
+  // Server only keeps the latest full installer; delta updates often stall/fail.
+  autoUpdater.disableDifferentialDownload = true;
   autoUpdater.setFeedURL({
     provider: 'generic',
     url: UPDATE_FEED,
   });
 
   autoUpdater.on('checking-for-update', () => {
-    console.log('[update] checking…');
+    setState({
+      status: 'checking',
+      message: '正在检查更新…',
+      error: null,
+    });
   });
 
   autoUpdater.on('update-available', (info) => {
-    console.log('[update] available', info.version);
-    const win = getMainWindow();
-    if (win && !win.isDestroyed()) {
-      void dialog.showMessageBox(win, {
-        type: 'info',
-        title: '发现新版本',
-        message: `简行浏览器 ${info.version} 可更新`,
-        detail: '正在后台下载，下载完成后会提示安装。',
-        buttons: ['知道了'],
-      });
-    }
+    // Download has been (or will be) started by autoDownload.
+    checking = false;
+    setState({
+      status: 'available',
+      latestVersion: info.version,
+      message: `发现新版本 ${info.version}，开始下载…`,
+      error: null,
+      percent: 0,
+    });
   });
 
-  autoUpdater.on('update-not-available', () => {
-    console.log('[update] up to date', app.getVersion());
+  autoUpdater.on('update-not-available', (info) => {
+    checking = false;
+    setState({
+      status: 'uptodate',
+      latestVersion: info?.version || app.getVersion(),
+      message: '当前已是最新版本',
+      error: null,
+      percent: 0,
+    });
   });
 
   autoUpdater.on('error', (err) => {
-    console.error('[update] error', err);
     checking = false;
+    const msg = err?.message || String(err);
+    console.error('[update] error', err);
+    setState({
+      status: 'error',
+      error: msg,
+      message: '更新出错',
+    });
   });
 
   autoUpdater.on('download-progress', (p) => {
-    console.log(
-      `[update] download ${p.percent.toFixed(1)}% (${Math.round(p.transferred / 1024 / 1024)}MB)`
-    );
+    checking = false;
+    setState({
+      status: 'downloading',
+      percent: Number(p.percent) || 0,
+      transferred: Number(p.transferred) || 0,
+      total: Number(p.total) || 0,
+      bytesPerSecond: Number(p.bytesPerSecond) || 0,
+      message: `正在下载 ${p.percent.toFixed(1)}%`,
+      error: null,
+    });
   });
 
-  autoUpdater.on('update-downloaded', async (info) => {
+  autoUpdater.on('update-downloaded', (info) => {
     downloaded = true;
     checking = false;
-    console.log('[update] downloaded', info.version);
-    const win = getMainWindow();
-    const result = await dialog.showMessageBox(win ?? undefined, {
-      type: 'info',
-      title: '更新已就绪',
-      message: `新版本 ${info.version} 已下载完成`,
-      detail: '点击「立即安装」将重启并完成更新。',
-      buttons: ['立即安装', '稍后'],
-      defaultId: 0,
-      cancelId: 1,
+    setState({
+      status: 'ready',
+      latestVersion: info.version,
+      percent: 100,
+      message: `新版本 ${info.version} 已就绪，可立即安装`,
+      error: null,
     });
-    if (result.response === 0) {
-      autoUpdater.quitAndInstall(false, true);
-    }
   });
 
-  const runCheck = () => {
-    if (checking || downloaded) return;
-    checking = true;
-    void autoUpdater.checkForUpdates().catch((err) => {
-      console.error('[update] check failed', err);
-      checking = false;
-    });
-  };
-
-  // First check shortly after launch, then every 6 hours.
-  setTimeout(runCheck, 8_000);
-  setInterval(runCheck, 6 * 60 * 60 * 1000);
+  setTimeout(() => {
+    void checkForAppUpdates(false);
+  }, 8_000);
+  setInterval(() => {
+    void checkForAppUpdates(false);
+  }, 6 * 60 * 60 * 1000);
 }

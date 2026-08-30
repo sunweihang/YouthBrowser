@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.JianXingBrowser" parent="Theme.MaterialComponents.Light.NoActionBar">
+        <item name="colorPrimary">@color/jx_primary</item>
+        <item name="colorPrimaryDark">@color/jx_primary_dark</item>
+        <item name="colorAccent">@color/jx_accent</item>
+        <item name="android:statusBarColor">@color/jx_primary_dark</item>
+        <item name="android:windowBackground">@color/jx_bg</item>
+        <item name="android:textColorPrimary">@color/jx_text</item>
+    </style>
+
+    <style name="Jx.ToolbarButton" parent="Widget.MaterialComponents.Button.TextButton">
+        <item name="android:minWidth">40dp</item>
+        <item name="android:minHeight">40dp</item>
+        <item name="android:padding">4dp</item>
+        <item name="android:textColor">@color/jx_primary_dark</item>
+    </style>
+</resources>

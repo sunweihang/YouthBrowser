@@ -42,8 +42,33 @@ function defaultRules(): RulesConfig {
   return {
     version: 2,
     parentPasswordHash: '',
+    filteringEnabled: false,
+    homepage: '',
     groups: [],
   };
+}
+
+function readHomepage(raw: unknown): string {
+  const parsed = normalizeHomepage(typeof raw === 'string' ? raw : '');
+  return parsed.ok ? parsed.url : '';
+}
+
+export function normalizeHomepage(raw: string): { ok: true; url: string } | { ok: false; error: string } {
+  const s = String(raw || '').trim();
+  if (!s) return { ok: true, url: '' };
+  let url = s;
+  if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(url)) {
+    url = `https://${url}`;
+  }
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') {
+      return { ok: false, error: '仅支持 http/https 地址' };
+    }
+    return { ok: true, url: u.toString() };
+  } catch {
+    return { ok: false, error: '网址无效' };
+  }
 }
 
 function normalizeGroup(raw: Partial<SiteGroup>): SiteGroup | null {
@@ -97,6 +122,8 @@ function migrateV1(raw: Record<string, unknown>): RulesConfig {
     version: 2,
     parentPasswordHash:
       typeof raw.parentPasswordHash === 'string' ? raw.parentPasswordHash : '',
+    filteringEnabled: raw.filteringEnabled === true,
+    homepage: '',
     groups: [group],
   };
 }
@@ -127,6 +154,8 @@ export class RulesStore {
             typeof raw.parentPasswordHash === 'string'
               ? raw.parentPasswordHash
               : '',
+          filteringEnabled: raw.filteringEnabled === true,
+          homepage: readHomepage(raw.homepage),
           groups,
         };
       }
@@ -148,6 +177,8 @@ export class RulesStore {
   getPublic(): PublicRules {
     return {
       hasPassword: Boolean(this.rules.parentPasswordHash),
+      filteringEnabled: this.isFilteringEnabled(),
+      homepage: this.getHomepage(),
       groups: this.rules.groups.map((g) => ({
         ...g,
         hosts: [...g.hosts],
@@ -163,6 +194,30 @@ export class RulesStore {
 
   hasPassword(): boolean {
     return Boolean(this.rules.parentPasswordHash);
+  }
+
+  isFilteringEnabled(): boolean {
+    return this.rules.filteringEnabled === true;
+  }
+
+  getHomepage(): string {
+    return this.rules.homepage || '';
+  }
+
+  setHomepage(raw: string): { ok: boolean; error?: string; rules?: PublicRules } {
+    const parsed = normalizeHomepage(raw);
+    if (!parsed.ok) return parsed;
+    this.rules.homepage = parsed.url;
+    this.persist();
+    return { ok: true, rules: this.getPublic() };
+  }
+
+  setFilteringEnabled(
+    enabled: boolean
+  ): { ok: boolean; rules?: PublicRules } {
+    this.rules.filteringEnabled = Boolean(enabled);
+    this.persist();
+    return { ok: true, rules: this.getPublic() };
   }
 
   setPassword(password: string): { ok: boolean; error?: string } {
@@ -308,6 +363,29 @@ export class RulesStore {
     group.extensionConfig = { ...cfg };
     this.persist();
     return { ok: true, rules: this.getPublic() };
+  }
+
+  /** Replace all groups from cloud sync (keeps local parent password). */
+  replaceGroups(
+    groups: SiteGroup[]
+  ): { ok: boolean; error?: string; rules?: PublicRules } {
+    if (!Array.isArray(groups)) {
+      return { ok: false, error: '配置格式无效' };
+    }
+    const normalized = groups
+      .map((g) => normalizeGroup(g))
+      .filter((g): g is SiteGroup => Boolean(g));
+    this.rules.groups = normalized;
+    this.persist();
+    return { ok: true, rules: this.getPublic() };
+  }
+
+  exportGroups(): SiteGroup[] {
+    return this.rules.groups.map((g) => ({
+      ...g,
+      hosts: [...g.hosts],
+      extensionConfig: { ...g.extensionConfig },
+    }));
   }
 }
 

@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>已保存的密码</title>
+  <link rel="stylesheet" href="../history/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-left">
+      <div class="brand-row">
+        <span class="brand">简行浏览器</span>
+        <span class="app-version" id="appVersion">v—</span>
+      </div>
+      <h1>已保存的密码</h1>
+    </div>
+    <div class="actions">
+      <input id="searchInput" type="search" placeholder="搜索网站或账号" autocomplete="off" spellcheck="false" />
+    </div>
+  </header>
+
+  <div id="list" class="list"></div>
+  <p id="empty" class="empty hidden">还没有保存的网站密码。</p>
+
+  <script src="app.js"></script>
+</body>
+</html>

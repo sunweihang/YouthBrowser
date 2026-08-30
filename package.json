@@ -1,6 +1,6 @@
 {
   "name": "jianxing-browser",
-  "version": "1.1.4",
+  "version": "1.1.26",
   "description": "简行浏览器：青少年专用，配置组白名单 + 站点扩展（含 B 站 UP）+ 收藏夹",
   "main": "dist/main/index.js",
   "author": "简行浏览器",
@@ -38,6 +38,25 @@
         "url": "http://182.92.120.159/downloads/jianxing/"
       }
     ],
+    "protocols": [
+      {
+        "name": "HTTP",
+        "schemes": ["http"]
+      },
+      {
+        "name": "HTTPS",
+        "schemes": ["https"]
+      }
+    ],
+    "fileAssociations": [
+      {
+        "ext": ["html", "htm"],
+        "name": "HTML Document",
+        "description": "HTML 文档",
+        "role": "Viewer",
+        "mimeType": "text/html"
+      }
+    ],
     "win": {
       "target": [
         "nsis"
@@ -56,14 +75,23 @@
       "target": [
         "AppImage"
       ],
-      "category": "Network",
+      "category": "Network;WebBrowser",
+      "mimeTypes": [
+        "x-scheme-handler/http",
+        "x-scheme-handler/https",
+        "text/html"
+      ],
       "icon": "build/icon.png"
     },
     "nsis": {
       "shortcutName": "简行浏览器",
       "artifactName": "JianXingBrowser-Setup-${version}.${ext}",
-      "oneClick": true,
-      "allowToChangeInstallationDirectory": false
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "allowElevation": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "include": "build/installer.nsh"
     }
   },
   "dependencies": {

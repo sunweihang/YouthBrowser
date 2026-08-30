@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="12dp"
+    android:background="@color/jx_surface"
+    android:layout_marginBottom="6dp"
+    android:elevation="1dp">
+
+    <TextView
+        android:id="@+id/requestTitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textColor="@color/jx_text"
+        android:textStyle="bold"
+        android:textSize="14sp" />
+
+    <TextView
+        android:id="@+id/requestUrl"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:textColor="@color/jx_muted"
+        android:textSize="12sp"
+        android:maxLines="2"
+        android:ellipsize="end" />
+
+    <TextView
+        android:id="@+id/requestReason"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:textColor="@color/jx_muted"
+        android:textSize="12sp" />
+
+    <TextView
+        android:id="@+id/requestStatus"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:textColor="@color/jx_primary"
+        android:textSize="12sp"
+        android:visibility="gone" />
+
+    <LinearLayout
+        android:id="@+id/requestActions"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginTop="8dp"
+        android:gravity="end">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnReject"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/reject" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnApprove"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:text="@string/approve" />
+    </LinearLayout>
+</LinearLayout>

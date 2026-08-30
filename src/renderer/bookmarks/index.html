@@ -9,8 +9,11 @@
 </head>
 <body>
   <header class="topbar">
-    <div>
-      <div class="brand">简行浏览器</div>
+    <div class="topbar-left">
+      <div class="brand-row">
+        <span class="brand">简行浏览器</span>
+        <span class="app-version" id="appVersion">v—</span>
+      </div>
       <h1>管理书签</h1>
     </div>
     <div class="actions">
@@ -20,6 +23,23 @@
       <button type="button" class="danger" id="btnDelete">删除</button>
     </div>
   </header>
+
+  <div class="sync-bar" id="syncBar">
+    <div class="sync-info">
+      <span class="sync-account" id="syncAccount">未登录账号</span>
+      <span class="sync-meta">
+        本地修订 <strong id="bmLocalRev">0</strong>
+        <span class="sync-sep">/</span>
+        云端修订 <strong id="bmServerRev">—</strong>
+      </span>
+      <span class="sync-status" id="bmSyncStatus">—</span>
+    </div>
+    <div class="sync-actions">
+      <button type="button" id="btnPushBm">上传收藏夹</button>
+      <button type="button" id="btnPullBm">拉取收藏夹</button>
+    </div>
+  </div>
+
   <div class="layout">
     <aside class="tree-pane">
       <div class="pane-title">文件夹</div>
@@ -28,9 +48,10 @@
     <main class="list-pane">
       <div class="pane-title" id="listTitle">内容</div>
       <div id="itemList" class="item-list"></div>
-      <p id="emptyHint" class="empty hidden">此文件夹为空。可把网址或书签拖到左侧文件夹，也可在浏览时点☆收藏后再拖过来。</p>
+      <p id="emptyHint" class="empty hidden">此文件夹为空</p>
     </main>
   </div>
+
   <p id="status" class="status"></p>
 
   <div id="dialogMask" class="dialog-mask hidden">

@@ -33,6 +33,8 @@ export function parseBiliVideoId(
 }
 
 export function parseSpaceMid(pathname: string): string | null {
+  const space = pathname.match(/^\/space\/(\d+)(?:\/|$)/i);
+  if (space) return space[1];
   const m = pathname.match(/^\/(\d+)(?:\/|$)/);
   return m ? m[1] : null;
 }

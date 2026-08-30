@@ -8,6 +8,7 @@ async function api<T>(
     method?: string;
     token?: string;
     body?: unknown;
+    timeoutMs?: number;
   } = {}
 ): Promise<T> {
   const headers: Record<string, string> = {
@@ -19,18 +20,31 @@ async function api<T>(
   if (options.token) {
     headers.Authorization = `Bearer ${options.token}`;
   }
-  const res = await fetch(`${baseUrl.replace(/\/$/, '')}${path}`, {
-    method: options.method || 'GET',
-    headers,
-    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
-  });
-  let data: unknown;
+  const timeoutMs = options.timeoutMs ?? 12_000;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    data = await res.json();
-  } catch {
-    throw new Error(`服务器响应异常 (${res.status})`);
+    const res = await fetch(`${baseUrl.replace(/\/$/, '')}${path}`, {
+      method: options.method || 'GET',
+      headers,
+      body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+      signal: ctrl.signal,
+    });
+    let data: unknown;
+    try {
+      data = await res.json();
+    } catch {
+      throw new Error(`服务器响应异常 (${res.status})`);
+    }
+    return data as T;
+  } catch (e) {
+    if (e instanceof Error && e.name === 'AbortError') {
+      throw new Error('连接服务器超时，请检查网络后重试');
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
   }
-  return data as T;
 }
 
 type AuthResult = {
@@ -51,6 +65,14 @@ type SyncGetResult = {
 type SyncPutResult = {
   ok: boolean;
   error?: string;
+  revision?: number;
+  updatedAt?: number;
+};
+
+type BookmarksSyncResult = {
+  ok: boolean;
+  error?: string;
+  nodes?: unknown[];
   revision?: number;
   updatedAt?: number;
 };
@@ -104,6 +126,7 @@ export class SyncClient {
     serverUrl?: string
   ): Promise<{ ok: boolean; error?: string }> {
     const base = (serverUrl || this.account.getServerUrl()).replace(/\/$/, '');
+    const prev = this.account.getSession();
     const data = await api<AuthResult>(base, '/auth/login', {
       method: 'POST',
       body: { username, password },
@@ -115,6 +138,9 @@ export class SyncClient {
       serverUrl: base,
       username: data.username,
       token: data.token,
+      lastSyncAt: prev?.username === data.username ? prev.lastSyncAt : undefined,
+      lastRevision:
+        prev?.username === data.username ? prev.lastRevision : undefined,
     });
     return { ok: true };
   }
@@ -189,6 +215,61 @@ export class SyncClient {
       return { ok: true, revision };
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : '上传失败' };
+    }
+  }
+
+  async pullBookmarks(options: { touch?: boolean } = {}): Promise<{
+    ok: boolean;
+    error?: string;
+    nodes?: unknown[];
+    revision?: number;
+    updatedAt?: number;
+  }> {
+    try {
+      const s = this.requireSession();
+      const data = await api<BookmarksSyncResult>(s.serverUrl, '/sync/bookmarks', {
+        token: s.token,
+      });
+      if (!data.ok) return { ok: false, error: data.error || '拉取收藏夹失败' };
+      return {
+        ok: true,
+        nodes: Array.isArray(data.nodes) ? data.nodes : [],
+        revision: data.revision || 0,
+        updatedAt: data.updatedAt || 0,
+      };
+    } catch (e) {
+      return {
+        ok: false,
+        error: e instanceof Error ? e.message : '拉取收藏夹失败',
+      };
+    }
+  }
+
+  async pushBookmarks(
+    nodes: unknown[],
+    localRevision: number
+  ): Promise<{ ok: boolean; error?: string; revision?: number; updatedAt?: number }> {
+    try {
+      const s = this.requireSession();
+      const data = await api<BookmarksSyncResult>(s.serverUrl, '/sync/bookmarks', {
+        method: 'PUT',
+        token: s.token,
+        body: {
+          nodes,
+          revision: localRevision || 0,
+        },
+      });
+      if (!data.ok) return { ok: false, error: data.error || '上传收藏夹失败' };
+      return {
+        ok: true,
+        revision: data.revision || 0,
+        updatedAt: data.updatedAt || 0,
+      };
+    } catch (e) {
+      return {
+        ok: false,
+        error: e instanceof Error ? e.message : '上传收藏夹失败',
+      };
     }
   }
 }

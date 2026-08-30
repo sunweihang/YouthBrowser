@@ -434,7 +434,83 @@ btnMove.addEventListener('click', async () => {
   }
   if (res.snapshot) await applySnapshot(res.snapshot);
   setStatus(`已移动到「${target ? target.title : targetId}」`);
+  void refreshBmSync();
 });
 
-api.onChanged(applySnapshot);
-api.snapshot().then(applySnapshot);
+async function refreshBmSync() {
+  const accountEl = document.getElementById('syncAccount');
+  const localEl = document.getElementById('bmLocalRev');
+  const serverEl = document.getElementById('bmServerRev');
+  const statusEl = document.getElementById('bmSyncStatus');
+  const pushBtn = document.getElementById('btnPushBm');
+  const pullBtn = document.getElementById('btnPullBm');
+  localEl.textContent = String(snapshot.revision || 0);
+  serverEl.textContent = '…';
+  statusEl.textContent = '检查中…';
+  try {
+    const st = await api.syncStatus();
+    if (!st || !st.loggedIn) {
+      accountEl.textContent = '未登录';
+      serverEl.textContent = '—';
+      statusEl.textContent = st?.error || '—';
+      pushBtn.disabled = true;
+      pullBtn.disabled = true;
+      return;
+    }
+    accountEl.textContent = st.username || '已登录';
+    localEl.textContent = String(st.localRevision ?? 0);
+    serverEl.textContent =
+      st.serverRevision == null ? '获取失败' : String(st.serverRevision);
+    statusEl.textContent = st.ok
+      ? st.status || '本地收藏夹已是最新'
+      : st.error || '无法连接服务器';
+    pushBtn.disabled = false;
+    pullBtn.disabled = false;
+  } catch (e) {
+    accountEl.textContent = '同步状态异常';
+    serverEl.textContent = '—';
+    statusEl.textContent = e && e.message ? e.message : '检查失败';
+    pushBtn.disabled = true;
+    pullBtn.disabled = true;
+  }
+}
+
+document.getElementById('btnPushBm').addEventListener('click', async () => {
+  setStatus('正在上传收藏夹…');
+  const res = await api.pushSync();
+  if (!res.ok) {
+    setStatus(res.error || '上传失败');
+    void refreshBmSync();
+    return;
+  }
+  if (res.snapshot) await applySnapshot(res.snapshot);
+  setStatus(res.unchanged ? '云端收藏夹已是最新' : '收藏夹已上传');
+  void refreshBmSync();
+});
+
+document.getElementById('btnPullBm').addEventListener('click', async () => {
+  setStatus('正在拉取收藏夹…');
+  const res = await api.pullSync();
+  if (!res.ok) {
+    setStatus(res.error || '拉取失败');
+    void refreshBmSync();
+    return;
+  }
+  if (res.snapshot) await applySnapshot(res.snapshot);
+  setStatus(res.unchanged ? '本地收藏夹已是最新' : '收藏夹已拉取');
+  void refreshBmSync();
+});
+
+api.appVersion().then((v) => {
+  const el = document.getElementById('appVersion');
+  if (el) el.textContent = v ? `v${v}` : 'v—';
+}).catch(() => {});
+
+api.onChanged(async (next) => {
+  await applySnapshot(next);
+  void refreshBmSync();
+});
+api.snapshot().then(async (next) => {
+  await applySnapshot(next);
+  void refreshBmSync();
+});

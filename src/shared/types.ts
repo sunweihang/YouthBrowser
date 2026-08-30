@@ -16,7 +16,7 @@ export const EXTENSION_CATALOG: ExtensionMeta[] = [
   {
     id: 'bilibili',
     label: 'B 站',
-    description: '仅允许打开指定 UP 的空间与视频；首页/搜索等拦截。',
+    description: '允许首页与搜索，以及指定 UP 的空间与视频；热门/动态等仍拦截。',
   },
 ];
 
@@ -38,11 +38,17 @@ export interface SiteGroup {
 export interface RulesConfig {
   version: 2;
   parentPasswordHash: string;
+  /** Master switch: policies only apply when true. Default off. */
+  filteringEnabled: boolean;
+  /** http(s) homepage. Empty = new-tab welcome page. */
+  homepage: string;
   groups: SiteGroup[];
 }
 
 export interface PublicRules {
   hasPassword: boolean;
+  filteringEnabled: boolean;
+  homepage: string;
   groups: SiteGroup[];
   extensions: ExtensionMeta[];
 }
@@ -60,6 +66,12 @@ export interface NavigateResult {
   reason?: BlockReason;
   finalUrl?: string;
   message?: string;
+  meta?: {
+    mid?: string;
+    bvid?: string;
+    aid?: string;
+    title?: string;
+  };
 }
 
 /** Suggested hosts when creating a Bilibili group (editable, not locked). */
@@ -85,6 +97,14 @@ export const BILI_HOST_SUFFIXES = [
 
 export function emptyBiliConfig(): BilibiliExtensionConfig {
   return { allowedMids: [], midNotes: {} };
+}
+
+export interface HistoryEntry {
+  id: string;
+  url: string;
+  title: string;
+  host: string;
+  visitedAt: number;
 }
 
 export function asBiliConfig(
