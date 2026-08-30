@@ -25,6 +25,53 @@ body {
   user-select: none;
 }
 
+body.custom-title-menu {
+  --wco-right: 138px;
+}
+
+.title-menu {
+  display: none;
+  align-items: center;
+  height: 32px;
+  padding: 0 0 0 8px;
+  padding-right: var(--wco-right, 138px);
+  background: var(--bg);
+}
+
+body.custom-title-menu:not(.menu-hidden) .title-menu {
+  display: flex;
+}
+
+.app-menus {
+  display: flex;
+  align-items: stretch;
+  height: 100%;
+  flex-shrink: 0;
+}
+
+.menu-item {
+  border: none;
+  background: transparent;
+  color: var(--text);
+  padding: 0 10px;
+  font-size: 12px;
+  line-height: 32px;
+  cursor: default;
+}
+
+.menu-item:hover,
+.menu-item[aria-expanded="true"] {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.title-drag,
+.chrome-drag {
+  flex: 1;
+  align-self: stretch;
+  min-width: 16px;
+  -webkit-app-region: drag;
+}
+
 .chrome {
   display: flex;
   align-items: center;
@@ -35,13 +82,37 @@ body {
   border-bottom: 1px solid var(--line);
 }
 
+body.custom-title-menu.menu-hidden .chrome {
+  padding-right: max(8px, var(--wco-right, 0px));
+}
+
+.tabs-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 0 1 auto;
+  max-width: 100%;
+}
+
 .tabs {
   display: flex;
   gap: 4px;
   overflow-x: auto;
-  flex: 1;
+  flex: 0 1 auto;
   min-width: 0;
   scrollbar-width: none;
+}
+
+#newTab {
+  flex-shrink: 0;
+}
+
+button,
+input,
+.tab,
+.bookmark-chip {
+  -webkit-app-region: no-drag;
 }
 
 .tabs::-webkit-scrollbar {

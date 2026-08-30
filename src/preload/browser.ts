@@ -19,6 +19,8 @@ contextBridge.exposeInMainWorld('youthBrowser', {
   downloadCancel: (id: string) => ipcRenderer.invoke('downloads:cancel', id),
   popupAppMenu: (x: number, y: number) =>
     ipcRenderer.invoke('shell:popupAppMenu', x, y),
+  popupMenu: (name: string, x: number, y: number) =>
+    ipcRenderer.invoke('shell:popupMenu', name, x, y),
   setChromeExtra: (extra: number) =>
     ipcRenderer.invoke('shell:setChromeExtra', extra),
   toggleBookmarksBar: () => ipcRenderer.invoke('shell:toggleBookmarksBar'),

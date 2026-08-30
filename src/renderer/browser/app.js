@@ -203,8 +203,11 @@ function render(state) {
   renderBookmarks(toolbar);
 
   bookmarksBar.classList.toggle('hidden-bar', state.bookmarksBarVisible === false);
+  document.body.classList.toggle('custom-title-menu', Boolean(state.customTitleMenu));
+  document.body.classList.toggle('menu-hidden', state.menuBarVisible === false);
   menuBtn.classList.toggle('needs-setup', Boolean(state.needsParentSetup));
-    menuBtn.title = '打开菜单';
+  menuBtn.title = '打开菜单';
+  syncWindowControlsPad();
 }
 
 urlInput.addEventListener('dragstart', (e) => {
@@ -241,6 +244,35 @@ menuBtn.addEventListener('click', (e) => {
   const rect = menuBtn.getBoundingClientRect();
   api.popupAppMenu(Math.round(rect.left), Math.round(rect.bottom));
 });
+
+const titleMenu = document.getElementById('titleMenu');
+titleMenu?.addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-menu]');
+  if (!btn || !api.popupMenu) return;
+  e.stopPropagation();
+  const rect = btn.getBoundingClientRect();
+  api.popupMenu(btn.dataset.menu, Math.round(rect.left), Math.round(rect.bottom));
+});
+
+function syncWindowControlsPad() {
+  const overlay = navigator.windowControlsOverlay;
+  if (!overlay || !overlay.visible) {
+    document.documentElement.style.setProperty('--wco-right', '0px');
+    return;
+  }
+  const geo = overlay.getTitlebarAreaRect();
+  const right = Math.max(0, Math.round(window.innerWidth - geo.x - geo.width));
+  document.documentElement.style.setProperty('--wco-right', `${right}px`);
+}
+
+if (navigator.windowControlsOverlay) {
+  navigator.windowControlsOverlay.addEventListener(
+    'geometrychange',
+    syncWindowControlsPad
+  );
+  syncWindowControlsPad();
+}
+window.addEventListener('resize', syncWindowControlsPad);
 document.getElementById('downloadsBtn').addEventListener('click', () => {
   api.openDownloads();
 });

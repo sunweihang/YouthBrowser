@@ -7,10 +7,25 @@
   <title>简行浏览器</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
-<body>
+<body class="custom-title-menu">
+  <div class="title-menu" id="titleMenu">
+    <nav class="app-menus" id="appMenus">
+      <button type="button" class="menu-item" data-menu="文件">文件</button>
+      <button type="button" class="menu-item" data-menu="编辑">编辑</button>
+      <button type="button" class="menu-item" data-menu="查看">查看</button>
+      <button type="button" class="menu-item" data-menu="历史">历史</button>
+      <button type="button" class="menu-item" data-menu="书签">书签</button>
+      <button type="button" class="menu-item" data-menu="工具">工具</button>
+      <button type="button" class="menu-item" data-menu="帮助">帮助</button>
+    </nav>
+    <div class="title-drag" aria-hidden="true"></div>
+  </div>
   <header class="chrome">
-    <div class="tabs" id="tabs"></div>
-    <button type="button" class="icon-btn" id="newTab" title="新标签页">+</button>
+    <div class="tabs-row">
+      <div class="tabs" id="tabs"></div>
+      <button type="button" class="icon-btn" id="newTab" title="新标签页">+</button>
+    </div>
+    <div class="chrome-drag" aria-hidden="true"></div>
   </header>
   <div class="toolbar">
     <button type="button" class="icon-btn" id="back" title="后退" disabled>←</button>

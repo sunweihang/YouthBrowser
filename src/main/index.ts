@@ -8,7 +8,10 @@ import {
   screen,
   session,
 } from 'electron';
-import type { MenuItemConstructorOptions } from 'electron';
+import type {
+  BrowserWindowConstructorOptions,
+  MenuItemConstructorOptions,
+} from 'electron';
 import { mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { pathToFileURL } from 'url';
@@ -37,8 +40,15 @@ import {
 } from './default-browser';
 
 const TAB_BAR_HEIGHT = 40;
+const TITLE_MENU_HEIGHT = 32;
 const TOOLBAR_HEIGHT = 48;
 const BOOKMARKS_BAR_HEIGHT = 36;
+const CHROME_BG = '#1a2332';
+const CHROME_FG = '#e8eef7';
+
+function usesInWindowTitleMenu(): boolean {
+  return process.platform === 'win32';
+}
 /** Extra space for chrome overlays (e.g. update / find) that would otherwise sit under BrowserView */
 let chromeExtraHeight = 0;
 let bookmarksBarVisible = true;
@@ -47,6 +57,7 @@ let homepage = '';
 
 function chromeHeight(): number {
   return (
+    (usesInWindowTitleMenu() && menuBarVisible ? TITLE_MENU_HEIGHT : 0) +
     TAB_BAR_HEIGHT +
     TOOLBAR_HEIGHT +
     (bookmarksBarVisible ? BOOKMARKS_BAR_HEIGHT : 0) +
@@ -298,6 +309,7 @@ function tabSnapshot() {
     homepage: getHomepage(),
     bookmarksBarVisible,
     menuBarVisible,
+    customTitleMenu: usesInWindowTitleMenu(),
     zoomFactor: active ? Number(active.view.webContents.getZoomFactor() || 1) : 1,
   };
 }
@@ -692,20 +704,30 @@ async function captureMarketingShots(): Promise<void> {
 }
 
 function createMainWindow(): void {
-  mainWindow = new BrowserWindow({
+  const winOpts: BrowserWindowConstructorOptions = {
     width: 1200,
     height: 800,
     minWidth: 800,
     minHeight: 600,
     title: APP_NAME,
-    autoHideMenuBar: !menuBarVisible,
+    backgroundColor: CHROME_BG,
+    autoHideMenuBar: usesInWindowTitleMenu() ? false : !menuBarVisible,
     webPreferences: {
       preload: distPath('preload', 'browser.js'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
     },
-  });
+  };
+  if (usesInWindowTitleMenu()) {
+    winOpts.titleBarStyle = 'hidden';
+    winOpts.titleBarOverlay = {
+      color: CHROME_BG,
+      symbolColor: CHROME_FG,
+      height: menuBarVisible ? TITLE_MENU_HEIGHT : TAB_BAR_HEIGHT,
+    };
+  }
+  mainWindow = new BrowserWindow(winOpts);
 
   applyMenuBarVisibility();
   void mainWindow.loadURL(rendererFile('browser', 'index.html'));
@@ -780,10 +802,31 @@ function openParentWindow(forceSetup = false): void {
   });
 }
 
+function applyTitleBarOverlay(): void {
+  if (!mainWindow || mainWindow.isDestroyed() || !usesInWindowTitleMenu()) return;
+  try {
+    mainWindow.setTitleBarOverlay({
+      color: CHROME_BG,
+      symbolColor: CHROME_FG,
+      height: menuBarVisible ? TITLE_MENU_HEIGHT : TAB_BAR_HEIGHT,
+    });
+  } catch {
+    /* overlay not available */
+  }
+}
+
 function applyMenuBarVisibility(): void {
   if (!mainWindow || mainWindow.isDestroyed()) return;
-  mainWindow.setAutoHideMenuBar(!menuBarVisible);
-  mainWindow.setMenuBarVisibility(menuBarVisible);
+  if (usesInWindowTitleMenu()) {
+    // Keep the native in-window menu off so title + menus share one row.
+    // Accelerators still come from Menu.setApplicationMenu.
+    mainWindow.setAutoHideMenuBar(false);
+    mainWindow.setMenuBarVisibility(false);
+    applyTitleBarOverlay();
+  } else {
+    mainWindow.setAutoHideMenuBar(!menuBarVisible);
+    mainWindow.setMenuBarVisibility(menuBarVisible);
+  }
   layoutViews();
 }
 
@@ -1034,6 +1077,18 @@ function reloadMenuItems(includeHiddenAccelerators = false): MenuItemConstructor
     },
   );
   return items;
+}
+
+function popupNamedMenu(name: string, x: number, y: number): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const top = buildAppMenuTemplate().find((item) => item.label === name);
+  const submenu = top?.submenu;
+  if (!submenu || !Array.isArray(submenu)) return;
+  Menu.buildFromTemplate(submenu).popup({
+    window: mainWindow,
+    x: Math.round(x),
+    y: Math.round(y),
+  });
 }
 
 function popupAppMenu(x: number, y: number): void {
@@ -1560,6 +1615,14 @@ function registerIpc(): void {
     popupAppMenu(Number(x) || 0, Number(y) || 0);
     return { ok: true };
   });
+
+  ipcMain.handle(
+    'shell:popupMenu',
+    (_e, name: string, x: number, y: number) => {
+      popupNamedMenu(String(name || ''), Number(x) || 0, Number(y) || 0);
+      return { ok: true };
+    }
+  );
 
   ipcMain.handle('shell:toggleBookmarksBar', () => {
     bookmarksBarVisible = !bookmarksBarVisible;
