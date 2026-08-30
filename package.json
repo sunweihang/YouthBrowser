@@ -12,7 +12,8 @@
     "pack": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder --publish never",
     "publish:update": "node scripts/publish-update.mjs",
-    "release": "npm run dist && npm run publish:update",
+    "deploy:sync": "node scripts/deploy-sync-server.mjs",
+    "release": "npm run dist && npm run publish:update && npm run deploy:sync",
     "smoke": "node scripts/smoke-nav.mjs"
   },
   "build": {
