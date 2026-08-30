@@ -5,6 +5,7 @@ import {
   dialog,
   ipcMain,
   Menu,
+  screen,
   session,
 } from 'electron';
 import type { MenuItemConstructorOptions } from 'electron';
@@ -148,6 +149,10 @@ let tabs: TabState[] = [];
 let activeTabId: string | null = null;
 let parentUnlocked = false;
 let pendingLaunchUrl: string | null = null;
+
+if (process.env.JIANXING_USER_DATA) {
+  app.setPath('userData', process.env.JIANXING_USER_DATA);
+}
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 if (!gotSingleInstanceLock) {
@@ -298,18 +303,20 @@ function tabSnapshot() {
 }
 
 function layoutViews(): void {
-  if (!mainWindow) return;
+  if (!mainWindow || mainWindow.isDestroyed()) return;
   const [width, height] = mainWindow.getContentSize();
   const top = chromeHeight();
+  const bounds = {
+    x: 0,
+    y: top,
+    width: Math.max(0, Math.round(width)),
+    height: Math.max(0, Math.round(height - top)),
+  };
   for (const tab of tabs) {
-    const bounds = {
-      x: 0,
-      y: top,
-      width,
-      height: Math.max(0, height - top),
-    };
+    // Auto-resize + setBounds together over-sizes the view on Windows DPI,
+    // so pages that center with max-width appear shifted.
+    tab.view.setAutoResize({ width: false, height: false });
     tab.view.setBounds(bounds);
-    tab.view.setAutoResize({ width: true, height: true });
   }
 }
 
@@ -633,6 +640,57 @@ function closeTab(id: string): void {
   }
 }
 
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function captureMarketingShots(): Promise<void> {
+  const dir =
+    process.env.JIANXING_CAPTURE_DIR ||
+    join(process.cwd(), 'server', 'download-page', 'assets');
+  mkdirSync(dir, { recursive: true });
+  await delay(1800);
+  openHistoryWindow();
+  openBookmarksManager();
+  openDownloadsWindow();
+  openParentWindow(!rulesStore.hasPassword());
+  await delay(1000);
+  if (parentWindow && !parentWindow.isDestroyed()) {
+    try {
+      await parentWindow.webContents.executeJavaScript(`
+        document.getElementById('authShell')?.classList.add('hidden');
+        document.getElementById('dashboard')?.classList.remove('hidden');
+        document.querySelector('[data-page="overview"]')?.click();
+      `);
+    } catch {
+      /* ignore */
+    }
+    await delay(500);
+  }
+
+  const shot = async (win: BrowserWindow | null, name: string) => {
+    if (!win || win.isDestroyed()) return;
+    try {
+      win.show();
+      win.focus();
+      await delay(200);
+      const img = await win.webContents.capturePage();
+      writeFileSync(join(dir, `${name}.png`), img.toPNG());
+    } catch (err) {
+      writeFileSync(
+        join(dir, `${name}.err.txt`),
+        String(err && (err as Error).stack ? (err as Error).stack : err)
+      );
+    }
+  };
+
+  await shot(historyWindow, 'history');
+  await shot(bookmarksWindow, 'bookmarks');
+  await shot(downloadsWindow, 'downloads');
+  await shot(parentWindow, 'parent');
+  writeFileSync(join(dir, 'capture-ready.txt'), 'ok\n');
+}
+
 function createMainWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1200,
@@ -652,7 +710,18 @@ function createMainWindow(): void {
   applyMenuBarVisibility();
   void mainWindow.loadURL(rendererFile('browser', 'index.html'));
 
-  mainWindow.on('resize', () => layoutViews());
+  for (const ev of [
+    'resize',
+    'resized',
+    'maximize',
+    'unmaximize',
+    'restore',
+    'enter-full-screen',
+    'leave-full-screen',
+    'show',
+  ] as const) {
+    mainWindow.on(ev, () => layoutViews());
+  }
   mainWindow.on('closed', () => {
     mainWindow = null;
     tabs = [];
@@ -715,6 +784,7 @@ function applyMenuBarVisibility(): void {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   mainWindow.setAutoHideMenuBar(!menuBarVisible);
   mainWindow.setMenuBarVisibility(menuBarVisible);
+  layoutViews();
 }
 
 function currentZoomFactor(): number {
@@ -892,6 +962,80 @@ function saveCurrentPage(): void {
   downloadsManager.startUrl(tab.view.webContents, url);
 }
 
+function reloadActiveTab(ignoreCache = false): void {
+  const tab = activeTab();
+  if (!tab) return;
+  if (ignoreCache) tab.view.webContents.reloadIgnoringCache();
+  else tab.view.webContents.reload();
+}
+
+async function confirmClearCache(): Promise<void> {
+  const options = {
+    type: 'question' as const,
+    title: '清理缓存',
+    message: '清理网页缓存？',
+    detail: '将删除已缓存的网页文件，不会清除历史、书签、密码或登录状态。',
+    buttons: ['取消', '清理'],
+    defaultId: 1,
+    cancelId: 0,
+    noLink: true,
+  };
+  const result =
+    mainWindow && !mainWindow.isDestroyed()
+      ? await dialog.showMessageBox(mainWindow, options)
+      : await dialog.showMessageBox(options);
+  if (result.response !== 1) return;
+  await session.fromPartition('persist:youth').clearCache();
+  reloadActiveTab(true);
+}
+
+function reloadMenuItems(includeHiddenAccelerators = false): MenuItemConstructorOptions[] {
+  const items: MenuItemConstructorOptions[] = [
+    {
+      label: '重新载入',
+      accelerator: 'CmdOrCtrl+R',
+      click: () => reloadActiveTab(false),
+    },
+    {
+      label: '强制刷新',
+      accelerator: 'CmdOrCtrl+Shift+R',
+      click: () => reloadActiveTab(true),
+    },
+    {
+      label: '清理缓存',
+      accelerator: 'CmdOrCtrl+Shift+Delete',
+      click: () => {
+        void confirmClearCache();
+      },
+    },
+  ];
+  if (!includeHiddenAccelerators) return items;
+  items.push(
+    {
+      label: '重新载入',
+      accelerator: 'F5',
+      visible: false,
+      acceleratorWorksWhenHidden: true,
+      click: () => reloadActiveTab(false),
+    },
+    {
+      label: '强制刷新',
+      accelerator: 'CmdOrCtrl+F5',
+      visible: false,
+      acceleratorWorksWhenHidden: true,
+      click: () => reloadActiveTab(true),
+    },
+    {
+      label: '强制刷新',
+      accelerator: 'Shift+F5',
+      visible: false,
+      acceleratorWorksWhenHidden: true,
+      click: () => reloadActiveTab(true),
+    },
+  );
+  return items;
+}
+
 function popupAppMenu(x: number, y: number): void {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   const tab = activeTab();
@@ -951,6 +1095,7 @@ function popupAppMenu(x: number, y: number): void {
       accelerator: 'CmdOrCtrl+J',
       click: () => openDownloadsWindow(),
     },
+    ...reloadMenuItems(),
     { type: 'separator' },
     {
       label: '在页面中查找',
@@ -977,7 +1122,7 @@ function popupAppMenu(x: number, y: number): void {
     },
     { type: 'separator' },
     {
-      label: rulesStore.hasPassword() ? '家长设置' : '家长设置（尚未完成）',
+      label: '家长设置',
       click: () => openParentWindow(!rulesStore.hasPassword()),
     },
     {
@@ -1143,11 +1288,7 @@ function buildAppMenuTemplate(): MenuItemConstructorOptions[] {
           label: '设置主页…',
           click: () => sendShellCommand('editHomepage'),
         },
-        {
-          label: '重新载入',
-          accelerator: 'CmdOrCtrl+R',
-          click: () => tab?.view.webContents.reload(),
-        },
+        ...reloadMenuItems(true),
         {
           label: '全屏',
           accelerator: 'F11',
@@ -1366,10 +1507,11 @@ function registerIpc(): void {
     if (tab?.view.webContents.canGoForward()) tab.view.webContents.goForward();
   });
 
-  ipcMain.handle('shell:reload', () => {
-    const tab = tabs.find((t) => t.id === activeTabId);
-    tab?.view.webContents.reload();
+  ipcMain.handle('shell:reload', (_e, ignoreCache?: boolean) => {
+    reloadActiveTab(Boolean(ignoreCache));
   });
+
+  ipcMain.handle('shell:clearCache', () => confirmClearCache());
 
   ipcMain.handle('shell:newTab', (_e, url?: string) => {
     createTab(url);
@@ -2245,7 +2387,12 @@ app.whenReady().then(() => {
   });
 
   createMainWindow();
-  startAutoUpdater(() => mainWindow);
+  screen.on('display-metrics-changed', () => layoutViews());
+  if (process.env.JIANXING_CAPTURE === '1') {
+    void captureMarketingShots();
+  } else {
+    startAutoUpdater(() => mainWindow);
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow();

@@ -214,6 +214,7 @@ object NavigationGuard {
 
         // Allow in-app / asset / about schemes used by WebView
         if (urlString.startsWith("file:") ||
+            urlString.startsWith("content:") ||
             urlString.startsWith("about:") ||
             urlString.startsWith("data:") ||
             urlString.startsWith("javascript:")

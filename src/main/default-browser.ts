@@ -5,8 +5,8 @@ import { pathToFileURL } from 'url';
 
 const execFileAsync = promisify(execFile);
 
-const CLIENT_ID = 'JianXingBrowser';
-const PROGID = 'JianXingBrowserHTML';
+const CLIENT_ID = 'SimplyGo';
+const PROGID = 'SimplyGoHTML';
 const APP_LABEL = '简行浏览器';
 
 export function extractLaunchUrl(argv: string[]): string | null {

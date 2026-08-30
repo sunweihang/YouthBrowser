@@ -1,6 +1,6 @@
 {
   "name": "jianxing-browser",
-  "version": "1.1.29",
+  "version": "1.1.30",
   "description": "简行浏览器：青少年专用，配置组白名单 + 站点扩展（含 B 站 UP）+ 收藏夹",
   "main": "dist/main/index.js",
   "author": "简行浏览器",
@@ -12,6 +12,8 @@
     "pack": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder --publish never",
     "publish:update": "node scripts/publish-update.mjs",
+    "publish:page": "node scripts/publish-page.mjs",
+    "publish:android": "node scripts/publish-android.mjs",
     "deploy:sync": "node scripts/deploy-sync-server.mjs",
     "release": "npm run dist && npm run publish:update && npm run deploy:sync",
     "smoke": "node scripts/smoke-nav.mjs"
@@ -36,7 +38,7 @@
     "publish": [
       {
         "provider": "generic",
-        "url": "http://182.92.120.159/downloads/jianxing/"
+        "url": "https://spacedreams.cn/simplygo/"
       }
     ],
     "protocols": [
@@ -62,7 +64,7 @@
       "target": [
         "nsis"
       ],
-      "executableName": "JianXingBrowser",
+      "executableName": "SimplyGo",
       "icon": "build/icon.ico"
     },
     "mac": {
@@ -86,7 +88,7 @@
     },
     "nsis": {
       "shortcutName": "简行浏览器",
-      "artifactName": "JianXingBrowser-Setup-${version}.${ext}",
+      "artifactName": "SimplyGo-Setup-${version}.${ext}",
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "allowElevation": true,

@@ -3,7 +3,7 @@ import { autoUpdater } from 'electron-updater';
 
 const UPDATE_FEED =
   process.env.JIANXING_UPDATE_URL ||
-  'http://182.92.120.159/downloads/jianxing/';
+  'https://spacedreams.cn/simplygo/';
 
 export type UpdateUiStatus =
   | 'idle'

@@ -25,7 +25,7 @@ const password =
   '';
 
 const remoteHome = '/home/lijin/jianxing-browser/downloads';
-const remoteWeb = '/var/www/jianliao/downloads/jianxing';
+const remoteWeb = '/var/www/jianliao/simplygo';
 
 function pickArtifacts() {
   const files = readdirSync(releaseDir);
@@ -105,7 +105,7 @@ function buildVersionsJson(remoteListingJson, latestVersion) {
   const byVer = new Map();
   for (const f of files) {
     const m = String(f.name || '').match(
-      /^JianXingBrowser-Setup-(\d+\.\d+\.\d+)\.exe$/i
+      /^(?:SimplyGo|JianXingBrowser|简行浏览器)-Setup-(\d+\.\d+\.\d+)\.exe$/i
     );
     if (!m) continue;
     byVer.set(m[1], {
@@ -169,12 +169,26 @@ async function main() {
       await upload(conn, arts.blockmap, `${remoteHome}/${arts.blockmapName}`);
     }
     await upload(conn, pageHtml, `${remoteHome}/index.html`);
+    const pageIcon = join(pageDir, 'app-icon.png');
+    if (existsSync(pageIcon)) {
+      await upload(conn, pageIcon, `${remoteHome}/app-icon.png`);
+    }
+    const pageAssets = join(pageDir, 'assets');
+    if (existsSync(pageAssets)) {
+      await exec(conn, `mkdir -p "${remoteHome}/assets"`);
+      for (const name of readdirSync(pageAssets)) {
+        if (!name.toLowerCase().endsWith('.png')) continue;
+        await upload(conn, join(pageAssets, name), `${remoteHome}/assets/${name}`);
+      }
+    }
 
     const copies = [
-      `sudo mkdir -p "${remoteWeb}"`,
+      `sudo mkdir -p "${remoteWeb}/assets"`,
       `sudo cp -f "${remoteHome}/${arts.exeName}" "${remoteWeb}/"`,
       `sudo cp -f "${remoteHome}/${arts.ymlName}" "${remoteWeb}/"`,
       `sudo cp -f "${remoteHome}/index.html" "${remoteWeb}/"`,
+      `sudo cp -f "${remoteHome}/app-icon.png" "${remoteWeb}/" || true`,
+      `sudo cp -f "${remoteHome}/assets/"*.png "${remoteWeb}/assets/" || true`,
     ];
     if (arts.blockmapName) {
       copies.push(
@@ -198,6 +212,7 @@ roots = [
     (${JSON.stringify(remoteWeb)}, True),
 ]
 patterns_suffix = (
+    "SimplyGo-Setup-",
     "JianXingBrowser-Setup-",
     "简行浏览器-Setup-",
 )
@@ -242,7 +257,7 @@ PY`
     );
 
     const versions = buildVersionsJson(listing, latestVersion);
-    const localVersions = join(tmpdir(), 'jianxing-versions.json');
+    const localVersions = join(tmpdir(), 'simplygo-versions.json');
     writeFileSync(localVersions, JSON.stringify(versions, null, 2), 'utf8');
     await upload(conn, localVersions, `${remoteHome}/versions.json`);
     await exec(
@@ -251,7 +266,7 @@ PY`
     );
 
     console.log('Published.');
-    console.log(`Download page: http://${host}/downloads/jianxing/`);
+    console.log('Download page: https://spacedreams.cn/simplygo/');
     console.log(`Versions: ${versions.versions.map((v) => v.version).join(', ')}`);
   } finally {
     conn.end();

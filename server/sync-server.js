@@ -150,15 +150,18 @@ async function handle(req, res) {
   }
 
   const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
-  // support both /jianxing-api/... (behind nginx) and /...
+  // support /simplygo-api/... (and the old /jianxing-api alias) behind nginx
   let pathname = url.pathname;
-  if (pathname.startsWith('/jianxing-api')) {
-    pathname = pathname.slice('/jianxing-api'.length) || '/';
+  for (const prefix of ['/simplygo-api', '/jianxing-api']) {
+    if (pathname === prefix || pathname.startsWith(`${prefix}/`)) {
+      pathname = pathname.slice(prefix.length) || '/';
+      break;
+    }
   }
 
   try {
     if (req.method === 'GET' && pathname === '/health') {
-      return send(res, 200, { ok: true, service: 'jianxing-sync' });
+      return send(res, 200, { ok: true, service: 'simplygo-sync' });
     }
 
     if (req.method === 'POST' && pathname === '/auth/register') {
@@ -353,6 +356,6 @@ const server = http.createServer((req, res) => {
   handle(req, res);
 });
 server.listen(PORT, '127.0.0.1', () => {
-  console.log(`[jianxing-sync] listening on 127.0.0.1:${PORT}`);
-  console.log(`[jianxing-sync] data: ${DATA_DIR}`);
+  console.log(`[simplygo-sync] listening on 127.0.0.1:${PORT}`);
+  console.log(`[simplygo-sync] data: ${DATA_DIR}`);
 });

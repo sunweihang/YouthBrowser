@@ -71,7 +71,7 @@ object BiliResolver {
         return try {
             val req = Request.Builder()
                 .url(apiUrl)
-                .header("User-Agent", "Mozilla/5.0 JianXingBrowser/1.0")
+                .header("User-Agent", "Mozilla/5.0 SimplyGo/1.0")
                 .get()
                 .build()
             client.newCall(req).execute().use { resp ->

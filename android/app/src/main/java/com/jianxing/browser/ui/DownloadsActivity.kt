@@ -1,17 +1,15 @@
 package com.jianxing.browser.ui
 
-import android.app.DownloadManager
-import android.content.ActivityNotFoundException
-import android.content.Intent
-import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ProgressBar
 import android.widget.TextView
-import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.isVisible
@@ -27,6 +25,13 @@ import java.util.Calendar
 class DownloadsActivity : AppCompatActivity() {
     private lateinit var binding: ActivityDownloadsBinding
     private lateinit var adapter: DownloadsAdapter
+    private val pollHandler = Handler(Looper.getMainLooper())
+    private val poll = object : Runnable {
+        override fun run() {
+            refresh(silent = true)
+            if (hasActive()) pollHandler.postDelayed(this, 800)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -34,20 +39,35 @@ class DownloadsActivity : AppCompatActivity() {
         setContentView(binding.root)
         binding.appVersion.text = "v${versionName()}"
         adapter = DownloadsAdapter(
-            onOpen = { openFile(it) },
-            onFolder = { showDownloadsApp() },
+            onOpen = { DownloadsHelper.openFile(this, it) },
+            onFolder = { DownloadsHelper.openFolder(this) },
+            onPause = { entry ->
+                DownloadsHelper.pause(this, entry)
+                refresh()
+            },
+            onResume = { entry ->
+                DownloadsHelper.resume(this, entry).fold(
+                    onSuccess = { refresh() },
+                    onFailure = { refresh() }
+                )
+            },
+            onCancel = { entry ->
+                DownloadsHelper.cancel(this, entry)
+                refresh()
+            },
             onRemove = { entry ->
+                if (entry.state == "progressing") DownloadsHelper.cancel(this, entry)
                 JianXingApp.instance.downloadsStore.remove(entry.id)
                 refresh()
             }
         )
         binding.downloadsList.layoutManager = LinearLayoutManager(this)
         binding.downloadsList.adapter = adapter
-        binding.btnOpenFolder.setOnClickListener { showDownloadsApp() }
+        binding.btnOpenFolder.setOnClickListener { DownloadsHelper.openFolder(this) }
         binding.btnClearDownloads.setOnClickListener {
             AlertDialog.Builder(this)
                 .setTitle("清空列表")
-                .setMessage("从列表移除已结束的下载？文件仍保留在下载文件夹。")
+                .setMessage("从列表移除已结束的下载？进行中的下载会保留，文件仍在下载文件夹。")
                 .setNegativeButton(android.R.string.cancel, null)
                 .setPositiveButton(R.string.downloads_clear) { _, _ ->
                     JianXingApp.instance.downloadsStore.clear()
@@ -66,9 +86,22 @@ class DownloadsActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         refresh()
+        startPoll()
     }
 
-    private fun refresh() {
+    override fun onPause() {
+        pollHandler.removeCallbacks(poll)
+        super.onPause()
+    }
+
+    private fun hasActive(): Boolean = DownloadsHelper.activeCount() > 0
+
+    private fun startPoll() {
+        pollHandler.removeCallbacks(poll)
+        if (hasActive()) pollHandler.postDelayed(poll, 800)
+    }
+
+    private fun refresh(silent: Boolean = false) {
         val q = binding.downloadsSearch.text?.toString().orEmpty()
         val items = JianXingApp.instance.downloadsStore.list(q).map {
             DownloadsHelper.refresh(this, it)
@@ -76,39 +109,7 @@ class DownloadsActivity : AppCompatActivity() {
         adapter.submit(groupByDay(items))
         binding.downloadsEmpty.isVisible = items.isEmpty()
         binding.downloadsList.isVisible = items.isNotEmpty()
-    }
-
-    private fun openFile(entry: DownloadEntry) {
-        val fresh = DownloadsHelper.refresh(this, entry)
-        val uri = when {
-            fresh.systemId >= 0 -> {
-                val dm = getSystemService(DOWNLOAD_SERVICE) as DownloadManager
-                dm.getUriForDownloadedFile(fresh.systemId)
-            }
-            fresh.filePath.startsWith("content:") || fresh.filePath.startsWith("file:") ->
-                Uri.parse(fresh.filePath)
-            else -> null
-        }
-        if (uri == null) {
-            Toast.makeText(this, "文件不存在", Toast.LENGTH_SHORT).show()
-            return
-        }
-        val intent = Intent(Intent.ACTION_VIEW)
-            .setDataAndType(uri, fresh.mime.ifBlank { "*/*" })
-            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        try {
-            startActivity(intent)
-        } catch (_: ActivityNotFoundException) {
-            Toast.makeText(this, "没有可打开此文件的应用", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    private fun showDownloadsApp() {
-        try {
-            startActivity(Intent(DownloadManager.ACTION_VIEW_DOWNLOADS))
-        } catch (_: Exception) {
-            Toast.makeText(this, "无法打开系统下载", Toast.LENGTH_SHORT).show()
-        }
+        if (!silent) startPoll()
     }
 
     private fun versionName(): String = try {
@@ -118,6 +119,9 @@ class DownloadsActivity : AppCompatActivity() {
     private class DownloadsAdapter(
         private val onOpen: (DownloadEntry) -> Unit,
         private val onFolder: (DownloadEntry) -> Unit,
+        private val onPause: (DownloadEntry) -> Unit,
+        private val onResume: (DownloadEntry) -> Unit,
+        private val onCancel: (DownloadEntry) -> Unit,
         private val onRemove: (DownloadEntry) -> Unit
     ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
         private var rows: List<Row> = emptyList()
@@ -146,10 +150,23 @@ class DownloadsActivity : AppCompatActivity() {
                     val item = row.entry
                     h.title.text = item.filename
                     h.time.text = HistoryActivity.formatClock(item.startedAt)
-                    h.meta.text = statusText(item)
+                    h.meta.text = DownloadsHelper.statusText(item)
+                    val progressing = item.state == "progressing" && !item.paused
+                    val paused = item.paused
                     val done = item.state == "completed"
+                    val pct = if (item.totalBytes > 0) {
+                        ((item.receivedBytes * 100) / item.totalBytes).toInt().coerceIn(0, 100)
+                    } else 8
+                    h.progress.isVisible = progressing
+                    if (progressing) h.progress.progress = pct
+                    h.pause.isVisible = progressing
+                    h.resume.isVisible = paused
+                    h.cancel.isVisible = progressing
                     h.open.isVisible = done
                     h.folder.isVisible = done
+                    h.pause.setOnClickListener { onPause(item) }
+                    h.resume.setOnClickListener { onResume(item) }
+                    h.cancel.setOnClickListener { onCancel(item) }
                     h.open.setOnClickListener { onOpen(item) }
                     h.folder.setOnClickListener { onFolder(item) }
                     h.remove.setOnClickListener { onRemove(item) }
@@ -166,6 +183,10 @@ class DownloadsActivity : AppCompatActivity() {
             val title: TextView = v.findViewById(R.id.dlTitle)
             val time: TextView = v.findViewById(R.id.dlTime)
             val meta: TextView = v.findViewById(R.id.dlMeta)
+            val progress: ProgressBar = v.findViewById(R.id.dlProgress)
+            val pause: View = v.findViewById(R.id.dlPause)
+            val resume: View = v.findViewById(R.id.dlResume)
+            val cancel: View = v.findViewById(R.id.dlCancel)
             val open: View = v.findViewById(R.id.dlOpen)
             val folder: View = v.findViewById(R.id.dlFolder)
             val remove: View = v.findViewById(R.id.dlRemove)
@@ -197,26 +218,6 @@ class DownloadsActivity : AppCompatActivity() {
             return "%04d-%02d-%02d".format(
                 c.get(Calendar.YEAR), c.get(Calendar.MONTH) + 1, c.get(Calendar.DAY_OF_MONTH)
             )
-        }
-
-        private fun statusText(item: DownloadEntry): String {
-            val state = when (item.state) {
-                "completed" -> "已完成"
-                "cancelled" -> "已取消"
-                "interrupted" -> "已中断"
-                else -> "下载中"
-            }
-            val size = if (item.totalBytes > 0) formatBytes(item.totalBytes)
-            else if (item.receivedBytes > 0) formatBytes(item.receivedBytes)
-            else ""
-            return listOf(state, size).filter { it.isNotBlank() }.joinToString(" · ")
-        }
-
-        private fun formatBytes(n: Long): String {
-            if (n < 1024) return "$n B"
-            if (n < 1024 * 1024) return "%.1f KB".format(n / 1024.0)
-            if (n < 1024L * 1024 * 1024) return "%.1f MB".format(n / (1024.0 * 1024))
-            return "%.1f GB".format(n / (1024.0 * 1024 * 1024))
         }
     }
 }

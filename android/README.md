@@ -1,6 +1,6 @@
 # 简行浏览器 Android
 
-青少年家长控制浏览器（配套 Electron Windows 版），包名 `com.jianxing.browser`，版本 **1.1.28** (versionCode 28)。
+青少年家长控制浏览器（配套 Electron Windows 版 SimplyGo / 简行），包名 `com.jianxing.browser`，版本 **1.1.30** (versionCode 30)。
 
 目标：与 Windows Electron 客户端在界面与功能上对齐。
 
@@ -16,7 +16,7 @@
 - 已批准访问申请：同 host+pathname 在守卫前放行
 - 拦截页：中文 reason 映射 +「申请访问」（与 Windows block 页一致）
 - 家长设置多面板：账号门禁 → 解锁 → 概览 / 配置组 / 访问申请 / 账号与同步 / 账号安全
-- 同步 API：`http://182.92.120.159/jianxing-api`（register / login / logout、`/sync/config`、`/sync/bookmarks`）
+- 同步 API：`https://spacedreams.cn/simplygo-api`（register / login / logout、`/sync/config`、`/sync/bookmarks`）
 
 ## 构建前准备
 

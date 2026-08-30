@@ -1,12 +1,13 @@
 ; Override electron-builder's default "app running" check.
 ; Default uses substring find.exe matching and can false-positive,
-; then loop forever on "无法关闭" even when JianXingBrowser.exe is not running.
+; then loop forever on "无法关闭" even when SimplyGo.exe is not running.
 !macro customCheckAppRunning
   DetailPrint "Closing ${APP_EXECUTABLE_FILENAME} if running..."
   StrCpy $R1 0
 
   kill_loop:
     nsExec::ExecToLog `"$SYSDIR\taskkill.exe" /F /IM "${APP_EXECUTABLE_FILENAME}" /T`
+    nsExec::ExecToLog `"$SYSDIR\taskkill.exe" /F /IM "JianXingBrowser.exe" /T`
     Sleep 600
 
     ; Exact image-name match only (no substring false positives)
@@ -27,26 +28,38 @@
 !macroend
 
 !macro customInstall
-  DetailPrint "Registering JianXing Browser as a web browser..."
-  WriteRegStr HKLM "Software\Clients\StartMenuInternet\JianXingBrowser" "" "简行浏览器"
-  WriteRegStr HKLM "Software\Clients\StartMenuInternet\JianXingBrowser\DefaultIcon" "" "$INSTDIR\${APP_EXECUTABLE_FILENAME},0"
-  WriteRegStr HKLM "Software\Clients\StartMenuInternet\JianXingBrowser\shell\open\command" "" '"$INSTDIR\${APP_EXECUTABLE_FILENAME}"'
-  WriteRegStr HKLM "Software\Clients\StartMenuInternet\JianXingBrowser\Capabilities" "ApplicationName" "简行浏览器"
-  WriteRegStr HKLM "Software\Clients\StartMenuInternet\JianXingBrowser\Capabilities" "ApplicationDescription" "面向家庭的青少年浏览器"
-  WriteRegStr HKLM "Software\Clients\StartMenuInternet\JianXingBrowser\Capabilities" "ApplicationIcon" "$INSTDIR\${APP_EXECUTABLE_FILENAME},0"
-  WriteRegStr HKLM "Software\Clients\StartMenuInternet\JianXingBrowser\Capabilities\URLAssociations" "http" "JianXingBrowserHTML"
-  WriteRegStr HKLM "Software\Clients\StartMenuInternet\JianXingBrowser\Capabilities\URLAssociations" "https" "JianXingBrowserHTML"
-  WriteRegStr HKLM "Software\Clients\StartMenuInternet\JianXingBrowser\Capabilities\FileAssociations" ".htm" "JianXingBrowserHTML"
-  WriteRegStr HKLM "Software\Clients\StartMenuInternet\JianXingBrowser\Capabilities\FileAssociations" ".html" "JianXingBrowserHTML"
-  WriteRegStr HKLM "Software\RegisteredApplications" "JianXingBrowser" "Software\Clients\StartMenuInternet\JianXingBrowser\Capabilities"
-  WriteRegStr HKLM "Software\Classes\JianXingBrowserHTML" "" "简行浏览器 HTML 文档"
-  WriteRegStr HKLM "Software\Classes\JianXingBrowserHTML" "URL Protocol" ""
-  WriteRegStr HKLM "Software\Classes\JianXingBrowserHTML\DefaultIcon" "" "$INSTDIR\${APP_EXECUTABLE_FILENAME},0"
-  WriteRegStr HKLM "Software\Classes\JianXingBrowserHTML\Application" "ApplicationName" "简行浏览器"
-  WriteRegStr HKLM "Software\Classes\JianXingBrowserHTML\shell\open\command" "" '"$INSTDIR\${APP_EXECUTABLE_FILENAME}" "%1"'
+  DetailPrint "Registering SimplyGo as a web browser..."
+  WriteRegStr HKLM "Software\Clients\StartMenuInternet\SimplyGo" "" "简行浏览器"
+  WriteRegStr HKLM "Software\Clients\StartMenuInternet\SimplyGo\DefaultIcon" "" "$INSTDIR\${APP_EXECUTABLE_FILENAME},0"
+  WriteRegStr HKLM "Software\Clients\StartMenuInternet\SimplyGo\shell\open\command" "" '"$INSTDIR\${APP_EXECUTABLE_FILENAME}"'
+  WriteRegStr HKLM "Software\Clients\StartMenuInternet\SimplyGo\Capabilities" "ApplicationName" "简行浏览器"
+  WriteRegStr HKLM "Software\Clients\StartMenuInternet\SimplyGo\Capabilities" "ApplicationDescription" "面向家庭的青少年浏览器"
+  WriteRegStr HKLM "Software\Clients\StartMenuInternet\SimplyGo\Capabilities" "ApplicationIcon" "$INSTDIR\${APP_EXECUTABLE_FILENAME},0"
+  WriteRegStr HKLM "Software\Clients\StartMenuInternet\SimplyGo\Capabilities\URLAssociations" "http" "SimplyGoHTML"
+  WriteRegStr HKLM "Software\Clients\StartMenuInternet\SimplyGo\Capabilities\URLAssociations" "https" "SimplyGoHTML"
+  WriteRegStr HKLM "Software\Clients\StartMenuInternet\SimplyGo\Capabilities\FileAssociations" ".htm" "SimplyGoHTML"
+  WriteRegStr HKLM "Software\Clients\StartMenuInternet\SimplyGo\Capabilities\FileAssociations" ".html" "SimplyGoHTML"
+  WriteRegStr HKLM "Software\RegisteredApplications" "SimplyGo" "Software\Clients\StartMenuInternet\SimplyGo\Capabilities"
+  WriteRegStr HKLM "Software\Classes\SimplyGoHTML" "" "简行浏览器 HTML 文档"
+  WriteRegStr HKLM "Software\Classes\SimplyGoHTML" "URL Protocol" ""
+  WriteRegStr HKLM "Software\Classes\SimplyGoHTML\DefaultIcon" "" "$INSTDIR\${APP_EXECUTABLE_FILENAME},0"
+  WriteRegStr HKLM "Software\Classes\SimplyGoHTML\Application" "ApplicationName" "简行浏览器"
+  WriteRegStr HKLM "Software\Classes\SimplyGoHTML\shell\open\command" "" '"$INSTDIR\${APP_EXECUTABLE_FILENAME}" "%1"'
+  DeleteRegKey HKLM "Software\Clients\StartMenuInternet\JianXingBrowser"
+  DeleteRegValue HKLM "Software\RegisteredApplications" "JianXingBrowser"
+  DeleteRegKey HKLM "Software\Classes\JianXingBrowserHTML"
+  DeleteRegKey HKCU "Software\Clients\StartMenuInternet\JianXingBrowser"
+  DeleteRegValue HKCU "Software\RegisteredApplications" "JianXingBrowser"
+  DeleteRegKey HKCU "Software\Classes\JianXingBrowserHTML"
 !macroend
 
 !macro customUnInstall
+  DeleteRegKey HKLM "Software\Clients\StartMenuInternet\SimplyGo"
+  DeleteRegValue HKLM "Software\RegisteredApplications" "SimplyGo"
+  DeleteRegKey HKLM "Software\Classes\SimplyGoHTML"
+  DeleteRegKey HKCU "Software\Clients\StartMenuInternet\SimplyGo"
+  DeleteRegValue HKCU "Software\RegisteredApplications" "SimplyGo"
+  DeleteRegKey HKCU "Software\Classes\SimplyGoHTML"
   DeleteRegKey HKLM "Software\Clients\StartMenuInternet\JianXingBrowser"
   DeleteRegValue HKLM "Software\RegisteredApplications" "JianXingBrowser"
   DeleteRegKey HKLM "Software\Classes\JianXingBrowserHTML"

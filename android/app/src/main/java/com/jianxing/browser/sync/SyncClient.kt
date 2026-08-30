@@ -228,6 +228,6 @@ class SyncClient(private val account: AccountStore) {
     }
 
     companion object {
-        const val DEFAULT_SERVER_URL = "http://182.92.120.159/jianxing-api"
+        const val DEFAULT_SERVER_URL = "https://spacedreams.cn/simplygo-api"
     }
 }

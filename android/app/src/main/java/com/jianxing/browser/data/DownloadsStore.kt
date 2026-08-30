@@ -18,7 +18,8 @@ class DownloadsStore(context: Context) {
             .filter { e ->
                 q.isEmpty() ||
                     e.filename.lowercase().contains(q) ||
-                    e.url.lowercase().contains(q)
+                    e.url.lowercase().contains(q) ||
+                    e.filePath.lowercase().contains(q)
             }
             .sortedByDescending { it.startedAt }
     }
@@ -41,6 +42,12 @@ class DownloadsStore(context: Context) {
         save(items)
         return next
     }
+
+    @Synchronized
+    fun get(id: String): DownloadEntry? = load().firstOrNull { it.id == id }
+
+    @Synchronized
+    fun latest(): DownloadEntry? = list().firstOrNull()
 
     @Synchronized
     fun findBySystemId(systemId: Long): DownloadEntry? =
@@ -81,6 +88,7 @@ class DownloadsStore(context: Context) {
                     totalBytes = o.optLong("totalBytes"),
                     startedAt = o.optLong("startedAt", System.currentTimeMillis()),
                     endedAt = if (o.has("endedAt") && !o.isNull("endedAt")) o.optLong("endedAt") else null,
+                    paused = o.optBoolean("paused", false),
                     systemId = o.optLong("systemId", -1)
                 )
             }
@@ -104,6 +112,7 @@ class DownloadsStore(context: Context) {
                     .put("totalBytes", e.totalBytes)
                     .put("startedAt", e.startedAt)
                     .put("endedAt", e.endedAt)
+                    .put("paused", e.paused)
                     .put("systemId", e.systemId)
             )
         }

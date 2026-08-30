@@ -91,6 +91,6 @@ class UpdateActivity : AppCompatActivity() {
     }
 
     companion object {
-        private const val FEED = "http://182.92.120.159/downloads/jianxing/latest.yml"
+        private const val FEED = "https://spacedreams.cn/simplygo/latest-android.yml"
     }
 }

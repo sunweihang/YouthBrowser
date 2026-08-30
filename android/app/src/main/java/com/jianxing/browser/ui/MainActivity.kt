@@ -8,13 +8,18 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.print.PrintAttributes
 import android.print.PrintManager
 import android.provider.Settings
+import android.graphics.Color
+import android.graphics.drawable.ColorDrawable
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.View
+import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
@@ -24,6 +29,8 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.LinearLayout
 import android.widget.PopupMenu
+import android.widget.PopupWindow
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
@@ -36,6 +43,7 @@ import com.jianxing.browser.data.DownloadsHelper
 import com.jianxing.browser.databinding.ActivityMainBinding
 import com.jianxing.browser.guard.NavigationGuard
 import com.jianxing.browser.model.BlockReason
+import com.jianxing.browser.model.DownloadEntry
 import org.json.JSONObject
 import java.util.UUID
 import java.util.concurrent.Executors
@@ -47,6 +55,18 @@ class MainActivity : AppCompatActivity() {
     private var activeTabId: String? = null
     private var pendingPassword: PendingPassword? = null
     private var chromeHidden = false
+    private var currentDownload: DownloadEntry? = null
+    private var pendingDownload: PendingDownload? = null
+    private var appMenuPopup: PopupWindow? = null
+    private val downloadHandler = Handler(Looper.getMainLooper())
+    private val downloadPoll = object : Runnable {
+        override fun run() {
+            pollDownloads()
+            if (DownloadsHelper.activeCount() > 0 || binding.downloadBar.isVisible) {
+                downloadHandler.postDelayed(this, 800)
+            }
+        }
+    }
 
     data class BrowserTab(
         val id: String,
@@ -55,7 +75,8 @@ class MainActivity : AppCompatActivity() {
         var url: String = "",
         var loading: Boolean = false,
         var lastCheckedUrl: String? = null,
-        var loadingBlockedPage: Boolean = false
+        var loadingBlockedPage: Boolean = false,
+        var bypassCacheOnce: Boolean = false
     )
 
     data class PendingPassword(
@@ -64,6 +85,13 @@ class MainActivity : AppCompatActivity() {
         val username: String,
         val password: String,
         val update: Boolean
+    )
+
+    data class PendingDownload(
+        val url: String,
+        val userAgent: String?,
+        val contentDisposition: String?,
+        val mimeType: String?
     )
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -75,10 +103,22 @@ class MainActivity : AppCompatActivity() {
         binding.btnBack.setOnClickListener { goBack() }
         binding.btnForward.setOnClickListener { goForward() }
         binding.btnReload.setOnClickListener { reload() }
+        binding.btnReload.setOnLongClickListener {
+            reload(ignoreCache = true)
+            true
+        }
         binding.btnStar.setOnClickListener { toggleBookmark() }
         binding.btnDownloads.setOnClickListener {
             startActivity(Intent(this, DownloadsActivity::class.java))
         }
+        binding.downloadBarOpen.setOnClickListener {
+            currentDownload?.let { DownloadsHelper.openFile(this, it) }
+        }
+        binding.downloadBarShow.setOnClickListener { DownloadsHelper.openFolder(this) }
+        binding.downloadBarList.setOnClickListener {
+            startActivity(Intent(this, DownloadsActivity::class.java))
+        }
+        binding.downloadBarClose.setOnClickListener { closeDownloadBar() }
         binding.btnMenu.setOnClickListener { showAppMenu(it) }
         binding.urlBar.setOnEditorActionListener { _, actionId, event ->
             if (actionId == EditorInfo.IME_ACTION_GO ||
@@ -113,17 +153,18 @@ class MainActivity : AppCompatActivity() {
         binding.findNext.setOnClickListener { runFind(true, true) }
         binding.findClose.setOnClickListener { closeFindBar() }
 
-        val launchUrl = extractHttpUrl(intent)
+        val launchUrl = extractLaunchUrl(intent)
         if (launchUrl != null) newTab(launchUrl) else newTab()
         refreshBookmarksBar()
         updateChrome()
         refreshSetupBadge()
+        refreshDownloadsChrome()
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        val url = extractHttpUrl(intent)
+        val url = extractLaunchUrl(intent)
         if (url != null) newTab(url)
     }
 
@@ -132,11 +173,33 @@ class MainActivity : AppCompatActivity() {
         refreshBookmarksBar()
         updateChrome()
         refreshSetupBadge()
+        refreshDownloadsChrome()
+        startDownloadPoll()
     }
 
-    private fun extractHttpUrl(intent: Intent?): String? {
-        val data = intent?.data?.toString() ?: return null
-        return if (data.startsWith("http://") || data.startsWith("https://")) data else null
+    override fun onPause() {
+        downloadHandler.removeCallbacks(downloadPoll)
+        super.onPause()
+    }
+
+    private fun extractLaunchUrl(intent: Intent?): String? {
+        val uri = intent?.data ?: return null
+        val data = uri.toString()
+        if (data.startsWith("http://") || data.startsWith("https://")) return data
+        if (data.startsWith("file://") || data.startsWith("content://")) {
+            if (data.startsWith("content://")) {
+                try {
+                    contentResolver.takePersistableUriPermission(
+                        uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    )
+                } catch (_: Exception) { }
+            }
+            val type = intent.type ?: runCatching { contentResolver.getType(uri) }.getOrNull()
+            val looksHtml = type?.contains("html") == true ||
+                data.contains(Regex("\\.(xhtml|html?)(?:[?#]|$)", RegexOption.IGNORE_CASE))
+            if (looksHtml || type.isNullOrBlank()) return data
+        }
+        return null
     }
 
     private fun activeTab(): BrowserTab? = tabs.find { it.id == activeTabId } ?: tabs.lastOrNull()
@@ -189,6 +252,7 @@ class MainActivity : AppCompatActivity() {
         val web = WebView(this)
         web.settings.javaScriptEnabled = true
         web.settings.domStorageEnabled = true
+        web.settings.allowFileAccess = true
         web.settings.setSupportZoom(true)
         web.settings.builtInZoomControls = true
         web.settings.displayZoomControls = false
@@ -264,6 +328,10 @@ class MainActivity : AppCompatActivity() {
                 tab.loadingBlockedPage = false
                 tab.loading = false
                 tab.title = view?.title?.takeIf { it.isNotBlank() } ?: tab.title
+                if (tab.bypassCacheOnce) {
+                    tab.bypassCacheOnce = false
+                    view?.settings?.cacheMode = WebSettings.LOAD_DEFAULT
+                }
                 if (!url.isNullOrBlank() && (url.startsWith("http://") || url.startsWith("https://"))) {
                     tab.url = url
                     JianXingApp.instance.historyStore.record(url, tab.title)
@@ -351,7 +419,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun openHomepage(tab: BrowserTab = activeTab() ?: newTab()) {
-        val home = JianXingApp.instance.rulesStore.getHomepage()
+        val home = JianXingApp.instance.settingsStore.getHomepage()
         if (home.isNotBlank()) {
             checkAndLoad(tab, home, fromUser = true)
         } else {
@@ -387,17 +455,65 @@ class MainActivity : AppCompatActivity() {
         if (tab.webView.canGoForward()) tab.webView.goForward()
     }
 
-    private fun reload() {
+    private fun reload(ignoreCache: Boolean = false) {
         val tab = activeTab() ?: return
         val current = tab.webView.url
         if (current != null && current.startsWith("file:///android_asset/")) {
             val original = NavigationGuard.parseQueryParam(current, "url")
             if (!original.isNullOrBlank() && original.startsWith("http")) {
+                if (ignoreCache) prepareBypassCache(tab)
                 checkAndLoad(tab, original, fromUser = true)
                 return
             }
         }
+        if (ignoreCache) {
+            prepareBypassCache(tab)
+            if (!current.isNullOrBlank() &&
+                (current.startsWith("http://") || current.startsWith("https://"))
+            ) {
+                tab.webView.loadUrl(current)
+                return
+            }
+        }
         tab.webView.reload()
+    }
+
+    private fun prepareBypassCache(tab: BrowserTab) {
+        tab.bypassCacheOnce = true
+        tab.webView.settings.cacheMode = WebSettings.LOAD_NO_CACHE
+    }
+
+    private fun confirmClearCache() {
+        AlertDialog.Builder(this)
+            .setTitle(R.string.cache_clear_title)
+            .setMessage(R.string.cache_clear_message)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(R.string.menu_clear_cache) { _, _ -> clearHttpCache() }
+            .show()
+    }
+
+    private fun clearHttpCache() {
+        val web = activeTab()?.webView ?: tabs.firstOrNull()?.webView
+        web?.clearCache(true)
+        reload(ignoreCache = true)
+        toast(getString(R.string.cache_cleared))
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        val shortcut = matchShortcut(event) ?: return super.dispatchKeyEvent(event)
+        if (event.action == KeyEvent.ACTION_DOWN) shortcut()
+        return true
+    }
+
+    private fun matchShortcut(event: KeyEvent): (() -> Unit)? {
+        val ctrl = event.isCtrlPressed
+        val shift = event.isShiftPressed
+        return when (event.keyCode) {
+            KeyEvent.KEYCODE_R -> if (ctrl) ({ reload(ignoreCache = shift) }) else null
+            KeyEvent.KEYCODE_F5 -> ({ reload(ignoreCache = ctrl || shift) })
+            KeyEvent.KEYCODE_FORWARD_DEL -> if (ctrl && shift) ({ confirmClearCache() }) else null
+            else -> null
+        }
     }
 
     private fun currentPageUrl(): String? {
@@ -548,69 +664,144 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showAppMenu(anchor: View) {
-        val popup = PopupMenu(this, anchor)
+        appMenuPopup?.dismiss()
         val url = currentPageUrl()
         val starred = url != null && JianXingApp.instance.bookmarksStore.isBookmarked(url)
         val zoom = JianXingApp.instance.settingsStore.getTextZoom()
-        popup.menu.add(0, MENU_NEW_TAB, 0, getString(R.string.menu_new_tab))
-        popup.menu.add(0, MENU_CLOSE_TAB, 0, getString(R.string.menu_close_tab))
-        popup.menu.add(0, MENU_TOGGLE_BM, 0, getString(if (starred) R.string.menu_unbookmark else R.string.menu_new_bookmark))
-        popup.menu.add(0, MENU_MANAGE_BM, 0, getString(R.string.menu_bookmarks))
-        popup.menu.add(0, MENU_HOME, 0, getString(R.string.menu_home))
-        popup.menu.add(0, MENU_SET_CURRENT_HOME, 0, getString(R.string.menu_set_current_home))
-        popup.menu.add(0, MENU_SET_HOME, 0, getString(R.string.menu_set_homepage))
-        popup.menu.add(0, MENU_HISTORY, 0, getString(R.string.menu_history))
-        popup.menu.add(0, MENU_DOWNLOADS, 0, getString(R.string.menu_downloads))
-        popup.menu.add(0, MENU_FIND, 0, getString(R.string.menu_find))
-        popup.menu.add(0, MENU_PRINT, 0, getString(R.string.menu_print))
-        val zoomMenu = popup.menu.addSubMenu(0, MENU_ZOOM, 0, "${getString(R.string.menu_zoom)}（$zoom%）")
-        zoomMenu.add(0, MENU_ZOOM_IN, 0, getString(R.string.menu_zoom_in))
-        zoomMenu.add(0, MENU_ZOOM_OUT, 0, getString(R.string.menu_zoom_out))
-        zoomMenu.add(0, MENU_ZOOM_RESET, 0, getString(R.string.menu_zoom_reset))
-        popup.menu.add(0, MENU_FULLSCREEN, 0, getString(R.string.menu_fullscreen))
-        popup.menu.add(
-            0, MENU_PARENT, 0,
-            getString(if (JianXingApp.instance.rulesStore.hasPassword()) R.string.menu_parent else R.string.menu_parent_setup)
-        )
-        popup.menu.add(0, MENU_UPDATE, 0, getString(R.string.menu_update))
-        popup.menu.add(0, MENU_PASSWORDS, 0, getString(R.string.menu_saved_passwords))
-        popup.menu.add(0, MENU_DEFAULT, 0, getString(R.string.menu_default_browser))
-        val barItem = popup.menu.add(0, MENU_BM_BAR, 0, getString(R.string.menu_bookmarks_bar))
-        barItem.isCheckable = true
-        barItem.isChecked = JianXingApp.instance.settingsStore.isBookmarksBarVisible()
-        popup.menu.add(0, MENU_ABOUT, 0, getString(R.string.menu_about))
+        val content = layoutInflater.inflate(R.layout.popup_app_menu, null)
+        val list = content.findViewById<LinearLayout>(R.id.appMenuList)
 
-        popup.setOnMenuItemClickListener { item ->
-            when (item.itemId) {
-                MENU_NEW_TAB -> newTab()
-                MENU_CLOSE_TAB -> activeTab()?.id?.let { closeTab(it) }
-                MENU_TOGGLE_BM -> toggleBookmark()
-                MENU_MANAGE_BM -> openBookmarks()
-                MENU_HOME -> openHomepage()
-                MENU_SET_CURRENT_HOME -> setCurrentHomepage()
-                MENU_SET_HOME -> openHomepageBar()
-                MENU_HISTORY -> openHistory()
-                MENU_DOWNLOADS -> startActivity(Intent(this, DownloadsActivity::class.java))
-                MENU_FIND -> openFindBar()
-                MENU_PRINT -> printPage()
-                MENU_ZOOM_IN -> changeZoom(10)
-                MENU_ZOOM_OUT -> changeZoom(-10)
-                MENU_ZOOM_RESET -> changeZoom(0, reset = true)
-                MENU_FULLSCREEN -> toggleFullscreen()
-                MENU_PARENT -> startActivity(Intent(this, ParentActivity::class.java))
-                MENU_UPDATE -> startActivity(Intent(this, UpdateActivity::class.java))
-                MENU_PASSWORDS -> startActivity(Intent(this, PasswordsActivity::class.java))
-                MENU_DEFAULT -> requestDefaultBrowser()
-                MENU_BM_BAR -> {
-                    val next = !JianXingApp.instance.settingsStore.isBookmarksBarVisible()
-                    JianXingApp.instance.settingsStore.setBookmarksBarVisible(next)
-                    applyBookmarksBarVisibility()
+        fun addItem(id: Int, title: String, checked: Boolean? = null, shortcut: String? = null) {
+            val row = layoutInflater.inflate(R.layout.item_app_menu, list, false)
+            row.findViewById<TextView>(R.id.menuTitle).text = title
+            val mark = row.findViewById<TextView>(R.id.menuCheck)
+            val hint = row.findViewById<TextView>(R.id.menuHint)
+            if (checked == true) {
+                mark.isVisible = true
+                mark.text = "✓"
+                hint.isVisible = false
+            } else {
+                mark.isVisible = false
+                if (!shortcut.isNullOrBlank()) {
+                    hint.isVisible = true
+                    hint.text = shortcut
+                } else {
+                    hint.isVisible = false
                 }
-                MENU_ABOUT -> showAbout()
             }
+            row.setOnClickListener {
+                if (id == MENU_ZOOM) {
+                    showZoomMenu(row)
+                    return@setOnClickListener
+                }
+                appMenuPopup?.dismiss()
+                onAppMenuClick(id)
+            }
+            list.addView(row)
+        }
+
+        fun addDivider() {
+            layoutInflater.inflate(R.layout.item_app_menu_divider, list, true)
+        }
+
+        addItem(MENU_NEW_TAB, getString(R.string.menu_new_tab))
+        addItem(MENU_CLOSE_TAB, getString(R.string.menu_close_tab))
+        addDivider()
+        addItem(MENU_TOGGLE_BM, getString(if (starred) R.string.menu_unbookmark else R.string.menu_new_bookmark))
+        addItem(MENU_MANAGE_BM, getString(R.string.menu_bookmarks))
+        addDivider()
+        addItem(MENU_HOME, getString(R.string.menu_home))
+        addItem(MENU_SET_CURRENT_HOME, getString(R.string.menu_set_current_home))
+        addItem(MENU_SET_HOME, getString(R.string.menu_set_homepage))
+        addDivider()
+        addItem(MENU_HISTORY, getString(R.string.menu_history))
+        addItem(MENU_DOWNLOADS, getString(R.string.menu_downloads))
+        addItem(MENU_SAVE_PAGE, getString(R.string.menu_save_page))
+        addItem(MENU_RELOAD, getString(R.string.menu_reload), shortcut = getString(R.string.shortcut_reload))
+        addItem(MENU_RELOAD_HARD, getString(R.string.menu_reload_hard), shortcut = getString(R.string.shortcut_reload_hard))
+        addItem(MENU_CLEAR_CACHE, getString(R.string.menu_clear_cache), shortcut = getString(R.string.shortcut_clear_cache))
+        addDivider()
+        addItem(MENU_FIND, getString(R.string.menu_find))
+        addItem(MENU_PRINT, getString(R.string.menu_print))
+        addItem(MENU_ZOOM, "${getString(R.string.menu_zoom)}（$zoom%）")
+        addItem(MENU_FULLSCREEN, getString(R.string.menu_fullscreen))
+        addDivider()
+        addItem(MENU_PARENT, getString(R.string.menu_parent))
+        addItem(MENU_UPDATE, getString(R.string.menu_update))
+        addItem(MENU_PASSWORDS, getString(R.string.menu_saved_passwords))
+        addItem(MENU_DEFAULT, getString(R.string.menu_default_browser))
+        addDivider()
+        addItem(
+            MENU_BM_BAR,
+            getString(R.string.menu_bookmarks_bar),
+            JianXingApp.instance.settingsStore.isBookmarksBarVisible()
+        )
+        addItem(MENU_ABOUT, getString(R.string.menu_about))
+
+        val width = (288 * resources.displayMetrics.density).toInt()
+        val maxH = (resources.displayMetrics.heightPixels * 0.72f).toInt()
+        content.measure(
+            View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+        )
+        val height = minOf(content.measuredHeight, maxH)
+        content.findViewById<ScrollView>(R.id.appMenuScroll).layoutParams.height = height
+
+        val popup = PopupWindow(content, width, height, true).apply {
+            isOutsideTouchable = true
+            elevation = 16f
+            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            setOnDismissListener { appMenuPopup = null }
+        }
+        appMenuPopup = popup
+        popup.showAsDropDown(anchor, 0, (6 * resources.displayMetrics.density).toInt(), Gravity.END)
+    }
+
+    private fun showZoomMenu(anchor: View) {
+        val popup = PopupMenu(this, anchor, Gravity.END)
+        popup.menu.add(0, MENU_ZOOM_IN, 0, getString(R.string.menu_zoom_in))
+        popup.menu.add(0, MENU_ZOOM_OUT, 0, getString(R.string.menu_zoom_out))
+        popup.menu.add(0, MENU_ZOOM_RESET, 0, getString(R.string.menu_zoom_reset))
+        popup.setOnMenuItemClickListener { item ->
+            appMenuPopup?.dismiss()
+            onAppMenuClick(item.itemId)
             true
         }
         popup.show()
+    }
+
+    private fun onAppMenuClick(id: Int) {
+        when (id) {
+            MENU_NEW_TAB -> newTab()
+            MENU_CLOSE_TAB -> activeTab()?.id?.let { closeTab(it) }
+            MENU_TOGGLE_BM -> toggleBookmark()
+            MENU_MANAGE_BM -> openBookmarks()
+            MENU_HOME -> openHomepage()
+            MENU_SET_CURRENT_HOME -> setCurrentHomepage()
+            MENU_SET_HOME -> openHomepageBar()
+            MENU_HISTORY -> openHistory()
+            MENU_DOWNLOADS -> startActivity(Intent(this, DownloadsActivity::class.java))
+            MENU_SAVE_PAGE -> saveCurrentPage()
+            MENU_RELOAD -> reload()
+            MENU_RELOAD_HARD -> reload(ignoreCache = true)
+            MENU_CLEAR_CACHE -> confirmClearCache()
+            MENU_FIND -> openFindBar()
+            MENU_PRINT -> printPage()
+            MENU_ZOOM_IN -> changeZoom(10)
+            MENU_ZOOM_OUT -> changeZoom(-10)
+            MENU_ZOOM_RESET -> changeZoom(0, reset = true)
+            MENU_FULLSCREEN -> toggleFullscreen()
+            MENU_PARENT -> startActivity(Intent(this, ParentActivity::class.java))
+            MENU_UPDATE -> startActivity(Intent(this, UpdateActivity::class.java))
+            MENU_PASSWORDS -> startActivity(Intent(this, PasswordsActivity::class.java))
+            MENU_DEFAULT -> requestDefaultBrowser()
+            MENU_BM_BAR -> {
+                val next = !JianXingApp.instance.settingsStore.isBookmarksBarVisible()
+                JianXingApp.instance.settingsStore.setBookmarksBarVisible(next)
+                applyBookmarksBarVisibility()
+            }
+            MENU_ABOUT -> showAbout()
+        }
     }
 
     private fun openBookmarks() {
@@ -710,7 +901,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun openHomepageBar() {
         binding.homepageError.text = ""
-        binding.homepageInput.setText(JianXingApp.instance.rulesStore.getHomepage())
+        binding.homepageInput.setText(JianXingApp.instance.settingsStore.getHomepage())
         binding.homepageBar.isVisible = true
         binding.homepageInput.requestFocus()
     }
@@ -722,7 +913,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun saveHomepageFromBar() {
         val raw = binding.homepageInput.text?.toString().orEmpty()
-        if (!JianXingApp.instance.rulesStore.setHomepage(raw)) {
+        if (!JianXingApp.instance.settingsStore.setHomepage(raw)) {
             binding.homepageError.text = "网址无效"
             return
         }
@@ -737,7 +928,7 @@ class MainActivity : AppCompatActivity() {
             toast("当前没有打开的网页")
             return
         }
-        if (!JianXingApp.instance.rulesStore.setHomepage(url)) {
+        if (!JianXingApp.instance.settingsStore.setHomepage(url)) {
             binding.homepageError.text = "网址无效"
             return
         }
@@ -747,7 +938,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun clearHomepage() {
-        JianXingApp.instance.rulesStore.setHomepage("")
+        JianXingApp.instance.settingsStore.setHomepage("")
         closeHomepageBar()
         toast("已清除")
     }
@@ -801,15 +992,19 @@ class MainActivity : AppCompatActivity() {
     override fun onBackPressed() {
         when {
             chromeHidden -> toggleFullscreen()
+            appMenuPopup?.isShowing == true -> appMenuPopup?.dismiss()
             binding.findBar.isVisible -> closeFindBar()
             binding.homepageBar.isVisible -> closeHomepageBar()
             binding.passwordBar.isVisible -> closePasswordBar()
+            binding.downloadBar.isVisible -> closeDownloadBar()
             activeTab()?.webView?.canGoBack() == true -> goBack()
             else -> super.onBackPressed()
         }
     }
 
     override fun onDestroy() {
+        appMenuPopup?.dismiss()
+        downloadHandler.removeCallbacks(downloadPoll)
         guardExecutor.shutdownNow()
         tabs.forEach { it.webView.destroy() }
         tabs.clear()
@@ -842,11 +1037,130 @@ class MainActivity : AppCompatActivity() {
         mimeType: String?
     ) {
         ensureNotifyPermission()
+        if (DownloadsHelper.needsLegacyStoragePermission() &&
+            checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            pendingDownload = PendingDownload(url, userAgent, contentDisposition, mimeType)
+            requestPermissions(arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE), REQ_STORAGE)
+            return
+        }
+        beginDownload(url, userAgent, contentDisposition, mimeType)
+    }
+
+    private fun beginDownload(
+        url: String,
+        userAgent: String?,
+        contentDisposition: String?,
+        mimeType: String?
+    ) {
         val res = DownloadsHelper.start(this, url, userAgent, contentDisposition, mimeType)
         res.fold(
-            onSuccess = { toast("开始下载 ${it.filename}") },
+            onSuccess = {
+                showDownloadBar(it)
+                startDownloadPoll()
+                toast("开始下载 ${it.filename}")
+            },
             onFailure = { toast(it.message ?: "下载失败") }
         )
+    }
+
+    private fun saveCurrentPage() {
+        val url = currentPageUrl()
+        if (url.isNullOrBlank()) {
+            toast("当前没有可保存的网页")
+            return
+        }
+        startDownload(url, activeTab()?.webView?.settings?.userAgentString, null, "text/html")
+    }
+
+    private fun closeDownloadBar() {
+        binding.downloadBar.isVisible = false
+    }
+
+    private fun showDownloadBar(item: DownloadEntry) {
+        currentDownload = item
+        val name = item.filename.ifBlank { "download" }
+        when {
+            item.state == "completed" -> {
+                binding.downloadBarText.text = "已下载 $name"
+                binding.downloadBarMeta.text = DownloadsHelper.formatBytes(
+                    if (item.receivedBytes > 0) item.receivedBytes else item.totalBytes
+                )
+                binding.downloadBarOpen.isVisible = true
+                binding.downloadBarShow.isVisible = true
+            }
+            item.state == "cancelled" && item.paused -> {
+                binding.downloadBarText.text = "已暂停 $name"
+                binding.downloadBarMeta.text = ""
+                binding.downloadBarOpen.isVisible = false
+                binding.downloadBarShow.isVisible = false
+            }
+            item.state == "cancelled" -> {
+                binding.downloadBarText.text = "已取消 $name"
+                binding.downloadBarMeta.text = ""
+                binding.downloadBarOpen.isVisible = false
+                binding.downloadBarShow.isVisible = false
+            }
+            item.state == "interrupted" -> {
+                binding.downloadBarText.text = "下载中断 $name"
+                binding.downloadBarMeta.text = ""
+                binding.downloadBarOpen.isVisible = false
+                binding.downloadBarShow.isVisible = false
+            }
+            else -> {
+                val rec = item.receivedBytes
+                val tot = item.totalBytes
+                val pct = if (tot > 0) "${minOf(100, ((rec * 100) / tot).toInt())}%" else ""
+                binding.downloadBarText.text = "${if (item.paused) "已暂停" else "正在下载"} $name"
+                binding.downloadBarMeta.text = listOf(
+                    pct,
+                    if (tot > 0) "${DownloadsHelper.formatBytes(rec)} / ${DownloadsHelper.formatBytes(tot)}"
+                    else if (rec > 0) DownloadsHelper.formatBytes(rec) else ""
+                ).filter { it.isNotBlank() }.joinToString(" · ")
+                binding.downloadBarOpen.isVisible = false
+                binding.downloadBarShow.isVisible = false
+            }
+        }
+        binding.downloadBar.isVisible = true
+    }
+
+    private fun refreshDownloadsBadge() {
+        val n = DownloadsHelper.activeCount()
+        binding.downloadsBadge.isVisible = n > 0
+        binding.downloadsBadge.text = if (n > 0) n.toString() else ""
+    }
+
+    private fun refreshDownloadsChrome() {
+        refreshDownloadsBadge()
+        val item = currentDownload?.id?.let { JianXingApp.instance.downloadsStore.get(it) }
+            ?: JianXingApp.instance.downloadsStore.latest()
+        if (item != null && (binding.downloadBar.isVisible || item.state == "progressing")) {
+            showDownloadBar(DownloadsHelper.refresh(this, item))
+        } else {
+            refreshDownloadsBadge()
+        }
+    }
+
+    private fun pollDownloads() {
+        val store = JianXingApp.instance.downloadsStore
+        val items = store.list().map { DownloadsHelper.refresh(this, it) }
+        refreshDownloadsBadge()
+        val tracked = currentDownload?.id?.let { id -> items.find { it.id == id } }
+        val latestActive = items.firstOrNull { it.state == "progressing" && !it.paused }
+        val next = latestActive ?: tracked
+        if (next != null && (binding.downloadBar.isVisible || next.state == "progressing")) {
+            showDownloadBar(next)
+        }
+    }
+
+    private fun startDownloadPoll() {
+        downloadHandler.removeCallbacks(downloadPoll)
+        if (DownloadsHelper.activeCount() > 0 || binding.downloadBar.isVisible) {
+            downloadHandler.post(downloadPoll)
+        } else {
+            refreshDownloadsBadge()
+        }
     }
 
     private fun ensureNotifyPermission() {
@@ -855,6 +1169,24 @@ class MainActivity : AppCompatActivity() {
             PackageManager.PERMISSION_GRANTED
         ) return
         requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQ_NOTIFY)
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQ_STORAGE) {
+            val pending = pendingDownload ?: return
+            pendingDownload = null
+            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                beginDownload(pending.url, pending.userAgent, pending.contentDisposition, pending.mimeType)
+            } else {
+                toast("需要存储权限才能下载")
+            }
+        }
     }
 
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
@@ -921,6 +1253,10 @@ class MainActivity : AppCompatActivity() {
         private const val MENU_SET_HOME = 7
         private const val MENU_HISTORY = 8
         private const val MENU_DOWNLOADS = 19
+        private const val MENU_SAVE_PAGE = 20
+        private const val MENU_RELOAD = 21
+        private const val MENU_RELOAD_HARD = 22
+        private const val MENU_CLEAR_CACHE = 23
         private const val MENU_FIND = 9
         private const val MENU_PRINT = 10
         private const val MENU_ZOOM = 11
@@ -936,6 +1272,7 @@ class MainActivity : AppCompatActivity() {
         private const val MENU_ZOOM_RESET = 82
 
         private const val REQ_NOTIFY = 4104
+        private const val REQ_STORAGE = 4105
 
         private fun newTabId(): String = "t_${UUID.randomUUID().toString().take(8)}"
 

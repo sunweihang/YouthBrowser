@@ -98,7 +98,7 @@ else
   echo "started pid $!"
 fi
 sleep 1
-curl -sS http://127.0.0.1:3910/health || curl -sS http://127.0.0.1:3910/jianxing-api/health || true
+curl -sS http://127.0.0.1:3910/health || curl -sS http://127.0.0.1:3910/simplygo-api/health || curl -sS http://127.0.0.1:3910/jianxing-api/health || true
 echo
 `;
     const out = await exec(conn, restart);

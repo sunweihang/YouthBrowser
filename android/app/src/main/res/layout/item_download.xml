@@ -43,15 +43,52 @@
                 android:textSize="12sp"
                 android:maxLines="1"
                 android:ellipsize="end" />
+
+            <ProgressBar
+                android:id="@+id/dlProgress"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="4dp"
+                android:layout_marginTop="6dp"
+                android:max="100"
+                android:progressTint="@color/jx_accent"
+                android:progressBackgroundTint="@color/jx_line"
+                android:visibility="gone" />
         </LinearLayout>
     </LinearLayout>
 
     <LinearLayout
+        android:id="@+id/dlActions"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:gravity="end"
         android:orientation="horizontal"
         android:paddingTop="4dp">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/dlPause"
+            style="@style/Jx.FindBtn"
+            android:layout_width="wrap_content"
+            android:layout_height="28dp"
+            android:text="@string/downloads_pause"
+            android:visibility="gone" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/dlResume"
+            style="@style/Jx.FindBtn"
+            android:layout_width="wrap_content"
+            android:layout_height="28dp"
+            android:text="@string/downloads_resume"
+            android:visibility="gone" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/dlCancel"
+            style="@style/Jx.FindBtn"
+            android:layout_width="wrap_content"
+            android:layout_height="28dp"
+            android:layout_marginStart="6dp"
+            android:text="@string/downloads_cancel"
+            android:visibility="gone" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/dlOpen"

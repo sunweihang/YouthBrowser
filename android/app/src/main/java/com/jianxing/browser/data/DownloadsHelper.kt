@@ -1,11 +1,15 @@
 package com.jianxing.browser.data
 
 import android.app.DownloadManager
+import android.content.ActivityNotFoundException
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Environment
 import android.webkit.MimeTypeMap
 import android.webkit.URLUtil
+import android.widget.Toast
 import com.jianxing.browser.JianXingApp
 import com.jianxing.browser.guard.NavigationGuard
 import com.jianxing.browser.model.DownloadEntry
@@ -13,7 +17,7 @@ import java.net.URLDecoder
 
 object DownloadsHelper {
     private val FILE_EXT = Regex(
-        "\\.(zip|rar|7z|tar|gz|tgz|bz2|xz|pdf|doc|docx|xls|xlsx|ppt|pptx|csv|txt|rtf|mp3|mp4|m4a|wav|flac|aac|ogg|avi|mkv|mov|webm|png|jpe?g|gif|webp|svg|ico|apk|ipa|exe|msi|dmg|pkg|iso|img|bin|torrent|epub|mobi|azw3)(?:[?#]|$)",
+        "\\.(zip|rar|7z|tar|gz|tgz|bz2|xz|pdf|doc|docx|xls|xlsx|ppt|pptx|csv|txt|rtf|mp3|mp4|m4a|wav|flac|aac|ogg|avi|mkv|mov|webm|png|jpe?g|gif|webp|svg|ico|apk|ipa|exe|msi|dmg|pkg|iso|img|bin|torrent|epub|mobi|azw3|json|xml|yaml|yml)(?:[?#]|$)",
         RegexOption.IGNORE_CASE
     )
 
@@ -72,6 +76,101 @@ object DownloadsHelper {
         )
         app.downloadsStore.add(entry)
         return Result.success(entry)
+    }
+
+    fun activeCount(): Int =
+        JianXingApp.instance.downloadsStore.list().count { it.state == "progressing" && !it.paused }
+
+    fun cancel(context: Context, entry: DownloadEntry): DownloadEntry {
+        if (entry.systemId >= 0) {
+            val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+            dm.remove(entry.systemId)
+        }
+        val next = entry.copy(
+            state = "cancelled",
+            paused = false,
+            endedAt = System.currentTimeMillis()
+        )
+        JianXingApp.instance.downloadsStore.update(entry.id) { next }
+        return next
+    }
+
+    fun pause(context: Context, entry: DownloadEntry): DownloadEntry {
+        if (entry.systemId >= 0) {
+            val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+            dm.remove(entry.systemId)
+        }
+        val next = entry.copy(state = "cancelled", paused = true, endedAt = System.currentTimeMillis())
+        JianXingApp.instance.downloadsStore.update(entry.id) { next }
+        return next
+    }
+
+    fun resume(context: Context, entry: DownloadEntry): Result<DownloadEntry> {
+        return start(context, entry.url, null, null, entry.mime.ifBlank { null })
+    }
+
+    fun needsLegacyStoragePermission(): Boolean =
+        Build.VERSION.SDK_INT <= Build.VERSION_CODES.P
+
+    fun openFile(context: Context, entry: DownloadEntry) {
+        val fresh = refresh(context, entry)
+        val uri = when {
+            fresh.systemId >= 0 -> {
+                val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+                dm.getUriForDownloadedFile(fresh.systemId)
+            }
+            fresh.filePath.startsWith("content:") || fresh.filePath.startsWith("file:") ->
+                Uri.parse(fresh.filePath)
+            else -> null
+        }
+        if (uri == null) {
+            Toast.makeText(context, "文件不存在", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val intent = Intent(Intent.ACTION_VIEW)
+            .setDataAndType(uri, fresh.mime.ifBlank { "*/*" })
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        try {
+            context.startActivity(intent)
+        } catch (_: ActivityNotFoundException) {
+            Toast.makeText(context, "没有可打开此文件的应用", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun openFolder(context: Context) {
+        try {
+            context.startActivity(Intent(DownloadManager.ACTION_VIEW_DOWNLOADS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        } catch (_: Exception) {
+            Toast.makeText(context, "无法打开系统下载", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun formatBytes(n: Long): String {
+        if (n < 1024) return "$n B"
+        if (n < 1024 * 1024) return "%.1f KB".format(n / 1024.0)
+        if (n < 1024L * 1024 * 1024) return "%.1f MB".format(n / (1024.0 * 1024))
+        return "%.1f GB".format(n / (1024.0 * 1024 * 1024))
+    }
+
+    fun statusText(item: DownloadEntry): String {
+        val state = when {
+            item.paused -> "已暂停"
+            item.state == "completed" -> "已完成"
+            item.state == "cancelled" -> "已取消"
+            item.state == "interrupted" -> "已中断"
+            else -> "下载中"
+        }
+        val size = if (item.state == "progressing" && item.totalBytes > 0) {
+            "${formatBytes(item.receivedBytes)} / ${formatBytes(item.totalBytes)}"
+        } else if (item.totalBytes > 0) {
+            formatBytes(item.totalBytes)
+        } else if (item.receivedBytes > 0) {
+            formatBytes(item.receivedBytes)
+        } else {
+            ""
+        }
+        return listOf(state, size).filter { it.isNotBlank() }.joinToString(" · ")
     }
 
     fun refresh(context: Context, entry: DownloadEntry): DownloadEntry {

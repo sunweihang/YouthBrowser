@@ -41,7 +41,7 @@ function titleFromUrl(url) {
 }
 
 async function dropOntoFolder(folderId, dt) {
-  const moveId = dt.getData('application/x-jianxing-bookmark');
+  const moveId = dt.getData('application/x-simplygo-bookmark');
   if (moveId) {
     await api.moveBookmark(moveId, folderId);
     return;
@@ -49,7 +49,7 @@ async function dropOntoFolder(folderId, dt) {
   const url = extractDroppedUrl(dt);
   if (!url) return;
   const title =
-    (dt.getData('text/x-jianxing-title') || '').trim() ||
+    (dt.getData('text/x-simplygo-title') || '').trim() ||
     (lastActive && lastActive.url === url ? lastActive.title : '') ||
     titleFromUrl(url);
   await api.addBookmark({ title, url, parentId: folderId });
@@ -108,11 +108,11 @@ function renderBookmarks(toolbar) {
     } else {
       chip.draggable = true;
       chip.addEventListener('dragstart', (e) => {
-        e.dataTransfer.setData('application/x-jianxing-bookmark', bm.id);
+        e.dataTransfer.setData('application/x-simplygo-bookmark', bm.id);
         if (bm.url) {
           e.dataTransfer.setData('text/uri-list', bm.url);
           e.dataTransfer.setData('text/plain', bm.url);
-          e.dataTransfer.setData('text/x-jianxing-title', bm.title || '');
+          e.dataTransfer.setData('text/x-simplygo-title', bm.title || '');
         }
         e.dataTransfer.effectAllowed = 'copyMove';
       });
@@ -216,7 +216,7 @@ urlInput.addEventListener('dragstart', (e) => {
   e.dataTransfer.setData('text/uri-list', url);
   e.dataTransfer.setData('text/plain', url);
   e.dataTransfer.setData(
-    'text/x-jianxing-title',
+    'text/x-simplygo-title',
     (lastActive && lastActive.title) || ''
   );
   e.dataTransfer.effectAllowed = 'copy';
@@ -233,7 +233,7 @@ navForm.addEventListener('submit', (e) => {
 
 backBtn.addEventListener('click', () => api.goBack());
 forwardBtn.addEventListener('click', () => api.goForward());
-reloadBtn.addEventListener('click', () => api.reload());
+reloadBtn.addEventListener('click', (e) => api.reload(e.shiftKey));
 newTabBtn.addEventListener('click', () => api.newTab());
 bookmarkBtn.addEventListener('click', () => api.toggleBookmark());
 menuBtn.addEventListener('click', (e) => {

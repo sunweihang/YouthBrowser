@@ -39,6 +39,7 @@ class JianXingApp : Application() {
         downloadsStore = DownloadsStore(this)
         sitePasswordsStore = SitePasswordsStore(this)
         settingsStore = SettingsStore(this)
+        settingsStore.migrateHomepageFromRules(rulesStore.getHomepage())
         rulesStore.ensureDefaultRequestGroup()
     }
 

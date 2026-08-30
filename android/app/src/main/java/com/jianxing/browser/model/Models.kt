@@ -33,6 +33,7 @@ data class DownloadEntry(
     val totalBytes: Long = 0,
     val startedAt: Long = System.currentTimeMillis(),
     val endedAt: Long? = null,
+    val paused: Boolean = false,
     val systemId: Long = -1
 )
 

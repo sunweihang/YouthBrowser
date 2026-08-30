@@ -10,7 +10,7 @@ export interface AccountSession {
   lastRevision?: number;
 }
 
-const DEFAULT_SERVER_URL = 'http://182.92.120.159/jianxing-api';
+const DEFAULT_SERVER_URL = 'https://spacedreams.cn/simplygo-api';
 
 function accountPath(): string {
   return join(app.getPath('userData'), 'account.json');

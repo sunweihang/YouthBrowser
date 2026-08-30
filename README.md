@@ -18,12 +18,12 @@
 
 公开下载页（含历史版本）：
 
-http://182.92.120.159/downloads/jianxing/
+https://spacedreams.cn/simplygo/
 
 ## 同步服务
 
 服务端代码：`server/sync-server.js`  
-公网 API：`http://182.92.120.159/jianxing-api/health`
+公网 API：`https://spacedreams.cn/simplygo-api/health`
 
 ## 自动更新
 

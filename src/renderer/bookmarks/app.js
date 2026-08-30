@@ -185,7 +185,7 @@ function titleFromUrl(url) {
 }
 
 async function dropOntoFolder(folderId, dt) {
-  const moveId = dt.getData('application/x-jianxing-bookmark');
+  const moveId = dt.getData('application/x-simplygo-bookmark');
   if (moveId) {
     if (moveId === folderId) return;
     const res = await api.move(moveId, folderId);
@@ -208,7 +208,7 @@ async function dropOntoFolder(folderId, dt) {
     return;
   }
   const title =
-    (dt.getData('text/x-jianxing-title') || '').trim() || titleFromUrl(url);
+    (dt.getData('text/x-simplygo-title') || '').trim() || titleFromUrl(url);
   const res = await api.add({ title, url, parentId: folderId });
   if (!res.ok) {
     setStatus(res.error || '收藏失败');
@@ -227,7 +227,7 @@ function wireFolderDropTarget(el, folderId) {
     e.preventDefault();
     e.stopPropagation();
     e.dataTransfer.dropEffect = e.dataTransfer.types.includes(
-      'application/x-jianxing-bookmark'
+      'application/x-simplygo-bookmark'
     )
       ? 'move'
       : 'copy';
@@ -277,11 +277,11 @@ function renderList() {
     if (!ROOT_IDS.has(item.id)) {
       row.addEventListener('dragstart', (e) => {
         selectedItemId = item.id;
-        e.dataTransfer.setData('application/x-jianxing-bookmark', item.id);
+        e.dataTransfer.setData('application/x-simplygo-bookmark', item.id);
         if (item.url) {
           e.dataTransfer.setData('text/uri-list', item.url);
           e.dataTransfer.setData('text/plain', item.url);
-          e.dataTransfer.setData('text/x-jianxing-title', item.title || '');
+          e.dataTransfer.setData('text/x-simplygo-title', item.title || '');
         }
         e.dataTransfer.effectAllowed = 'copyMove';
         row.classList.add('selected');
