@@ -35,7 +35,6 @@ class PasswordsActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivityPasswordsBinding.inflate(layoutInflater)
         setContentView(binding.root)
-        binding.appVersion.text = "v${versionName()}"
         binding.list.layoutManager = LinearLayoutManager(this)
         binding.list.adapter = adapter
         binding.searchInput.addTextChangedListener(object : TextWatcher {
@@ -58,10 +57,6 @@ class PasswordsActivity : AppCompatActivity() {
         binding.empty.isVisible = items.isEmpty()
         binding.list.isVisible = items.isNotEmpty()
     }
-
-    private fun versionName(): String = try {
-        packageManager.getPackageInfo(packageName, 0).versionName ?: "—"
-    } catch (_: Exception) { "—" }
 
     private class PasswordAdapter(
         private val onDelete: (SitePasswordEntry) -> Unit

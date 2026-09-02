@@ -24,7 +24,6 @@ contextBridge.exposeInMainWorld('youthBrowser', {
   setChromeExtra: (extra: number) =>
     ipcRenderer.invoke('shell:setChromeExtra', extra),
   toggleBookmarksBar: () => ipcRenderer.invoke('shell:toggleBookmarksBar'),
-  toggleMenuBar: () => ipcRenderer.invoke('shell:toggleMenuBar'),
   zoomIn: () => ipcRenderer.invoke('shell:zoomIn'),
   zoomOut: () => ipcRenderer.invoke('shell:zoomOut'),
   zoomReset: () => ipcRenderer.invoke('shell:zoomReset'),

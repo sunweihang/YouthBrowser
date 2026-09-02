@@ -29,14 +29,6 @@ body {
   max-width: 400px;
 }
 
-.brand {
-  margin: 0 0 6px;
-  color: var(--accent);
-  font-size: 11px;
-  font-weight: 650;
-  letter-spacing: 0.08em;
-}
-
 h1 {
   margin: 0 0 16px;
   font-size: 20px;

@@ -38,25 +38,6 @@ body {
   background: var(--panel-2);
 }
 
-.brand-row {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  margin-bottom: 2px;
-}
-
-.brand {
-  color: var(--accent);
-  font-size: 11px;
-  font-weight: 650;
-  letter-spacing: 0.08em;
-}
-
-.app-version {
-  font-size: 11px;
-  color: var(--muted);
-}
-
 h1 {
   margin: 0;
   font-size: 18px;

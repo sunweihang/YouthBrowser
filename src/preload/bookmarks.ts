@@ -14,7 +14,6 @@ contextBridge.exposeInMainWorld('youthBookmarks', {
     ipcRenderer.invoke('bookmarks:move', id, parentId),
   remove: (id: string) => ipcRenderer.invoke('bookmarks:remove', id),
   open: (id: string) => ipcRenderer.invoke('bookmarks:open', id),
-  appVersion: () => ipcRenderer.invoke('bookmarks:appVersion'),
   account: () => ipcRenderer.invoke('bookmarks:account'),
   syncStatus: () => ipcRenderer.invoke('bookmarks:syncStatus'),
   pushSync: () => ipcRenderer.invoke('bookmarks:pushSync'),

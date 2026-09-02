@@ -3,8 +3,6 @@ const api = window.youthBrowser;
 
 const tabsEl = document.getElementById('tabs');
 const urlInput = document.getElementById('urlInput');
-const backBtn = document.getElementById('back');
-const forwardBtn = document.getElementById('forward');
 const reloadBtn = document.getElementById('reload');
 const newTabBtn = document.getElementById('newTab');
 const bookmarkBtn = document.getElementById('bookmarkBtn');
@@ -176,8 +174,6 @@ function render(state) {
       active.url &&
       (active.url.startsWith('http://') || active.url.startsWith('https://'));
     urlInput.draggable = Boolean(canDragUrl);
-    backBtn.disabled = !active.canGoBack;
-    forwardBtn.disabled = !active.canGoForward;
     bookmarkBtn.classList.toggle('active', Boolean(active.isBookmarked));
     bookmarkBtn.textContent = active.isBookmarked ? '★' : '☆';
     bookmarkBtn.title = active.isBookmarked
@@ -204,7 +200,6 @@ function render(state) {
 
   bookmarksBar.classList.toggle('hidden-bar', state.bookmarksBarVisible === false);
   document.body.classList.toggle('custom-title-menu', Boolean(state.customTitleMenu));
-  document.body.classList.toggle('menu-hidden', state.menuBarVisible === false);
   menuBtn.classList.toggle('needs-setup', Boolean(state.needsParentSetup));
   menuBtn.title = '打开菜单';
   syncWindowControlsPad();
@@ -234,8 +229,6 @@ navForm.addEventListener('submit', (e) => {
   if (url) api.navigate(url);
 });
 
-backBtn.addEventListener('click', () => api.goBack());
-forwardBtn.addEventListener('click', () => api.goForward());
 reloadBtn.addEventListener('click', (e) => api.reload(e.shiftKey));
 newTabBtn.addEventListener('click', () => api.newTab());
 bookmarkBtn.addEventListener('click', () => api.toggleBookmark());

@@ -38,7 +38,7 @@ body.custom-title-menu {
   background: var(--bg);
 }
 
-body.custom-title-menu:not(.menu-hidden) .title-menu {
+body.custom-title-menu .title-menu {
   display: flex;
 }
 
@@ -80,10 +80,6 @@ body.custom-title-menu:not(.menu-hidden) .title-menu {
   padding: 4px 8px 0;
   background: var(--bg);
   border-bottom: 1px solid var(--line);
-}
-
-body.custom-title-menu.menu-hidden .chrome {
-  padding-right: max(8px, var(--wco-right, 0px));
 }
 
 .tabs-row {

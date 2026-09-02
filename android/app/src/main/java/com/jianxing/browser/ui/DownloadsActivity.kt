@@ -37,7 +37,6 @@ class DownloadsActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivityDownloadsBinding.inflate(layoutInflater)
         setContentView(binding.root)
-        binding.appVersion.text = "v${versionName()}"
         adapter = DownloadsAdapter(
             onOpen = { DownloadsHelper.openFile(this, it) },
             onFolder = { DownloadsHelper.openFolder(this) },
@@ -111,10 +110,6 @@ class DownloadsActivity : AppCompatActivity() {
         binding.downloadsList.isVisible = items.isNotEmpty()
         if (!silent) startPoll()
     }
-
-    private fun versionName(): String = try {
-        packageManager.getPackageInfo(packageName, 0).versionName ?: "—"
-    } catch (_: Exception) { "—" }
 
     private class DownloadsAdapter(
         private val onOpen: (DownloadEntry) -> Unit,

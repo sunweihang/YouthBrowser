@@ -1,6 +1,6 @@
 # 简行浏览器 Android
 
-青少年家长控制浏览器（配套 Electron Windows 版 SimplyGo / 简行），包名 `com.jianxing.browser`，版本 **1.1.31** (versionCode 31)。
+青少年家长控制浏览器（配套 Electron Windows 版 SimplyGo / 简行），包名 `com.jianxing.browser`，版本 **1.1.32** (versionCode 32)。
 
 目标：与 Windows Electron 客户端在界面与功能上对齐。
 

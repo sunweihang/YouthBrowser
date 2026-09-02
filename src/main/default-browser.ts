@@ -1,5 +1,6 @@
 import { app, shell } from 'electron';
 import { execFile } from 'child_process';
+import { release } from 'os';
 import { promisify } from 'util';
 import { pathToFileURL } from 'url';
 
@@ -8,6 +9,7 @@ const execFileAsync = promisify(execFile);
 const CLIENT_ID = 'SimplyGo';
 const PROGID = 'SimplyGoHTML';
 const APP_LABEL = '简行浏览器';
+const WIN11_BUILD = 22000;
 
 export function extractLaunchUrl(argv: string[]): string | null {
   const exe = (process.execPath || '').toLowerCase();
@@ -29,13 +31,45 @@ export function extractLaunchUrl(argv: string[]): string | null {
   return null;
 }
 
+async function hasRegisteredApp(hive: 'HKCU' | 'HKLM'): Promise<boolean> {
+  try {
+    await execFileAsync(
+      'reg',
+      ['query', `${hive}\\Software\\RegisteredApplications`, '/v', CLIENT_ID],
+      { windowsHide: true }
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function openWindowsSettings(uri: string): Promise<void> {
+  try {
+    await execFileAsync('cmd.exe', ['/d', '/c', `start "" "${uri}"`], {
+      windowsHide: true,
+    });
+  } catch {
+    await shell.openExternal(uri);
+  }
+}
+
+function windowsBuild(): number {
+  return Number(release().split('.')[2] || 0);
+}
+
 export async function openDefaultBrowserSettings(): Promise<void> {
   if (process.platform === 'win32') {
-    try {
-      await shell.openExternal('ms-settings:default-browser');
-    } catch {
-      await shell.openExternal('ms-settings:defaultapps');
+    const name = encodeURIComponent(CLIENT_ID);
+    let uri = 'ms-settings:defaultapps';
+    if (windowsBuild() >= WIN11_BUILD) {
+      if (await hasRegisteredApp('HKLM')) {
+        uri = `ms-settings:defaultapps?registeredAppMachine=${name}`;
+      } else if (await hasRegisteredApp('HKCU')) {
+        uri = `ms-settings:defaultapps?registeredAppUser=${name}`;
+      }
     }
+    await openWindowsSettings(uri);
     return;
   }
   if (process.platform === 'darwin') {

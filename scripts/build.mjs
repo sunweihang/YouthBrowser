@@ -20,6 +20,7 @@ await esbuild.build({
     join(root, 'src/preload/downloads.ts'),
     join(root, 'src/preload/update.ts'),
     join(root, 'src/preload/passwords.ts'),
+    join(root, 'src/preload/about.ts'),
   ],
   outdir: dist,
   outbase: join(root, 'src'),

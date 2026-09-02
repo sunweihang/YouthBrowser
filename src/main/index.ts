@@ -7,6 +7,7 @@ import {
   Menu,
   screen,
   session,
+  shell,
 } from 'electron';
 import type {
   BrowserWindowConstructorOptions,
@@ -52,12 +53,11 @@ function usesInWindowTitleMenu(): boolean {
 /** Extra space for chrome overlays (e.g. update / find) that would otherwise sit under BrowserView */
 let chromeExtraHeight = 0;
 let bookmarksBarVisible = true;
-let menuBarVisible = true;
 let homepage = '';
 
 function chromeHeight(): number {
   return (
-    (usesInWindowTitleMenu() && menuBarVisible ? TITLE_MENU_HEIGHT : 0) +
+    (usesInWindowTitleMenu() ? TITLE_MENU_HEIGHT : 0) +
     TAB_BAR_HEIGHT +
     TOOLBAR_HEIGHT +
     (bookmarksBarVisible ? BOOKMARKS_BAR_HEIGHT : 0) +
@@ -74,11 +74,9 @@ function loadChromePrefs(): void {
   try {
     const raw = JSON.parse(readFileSync(chromePrefsPath(), 'utf8')) as {
       bookmarksBarVisible?: boolean;
-      menuBarVisible?: boolean;
       homepage?: string;
     };
     bookmarksBarVisible = raw.bookmarksBarVisible !== false;
-    menuBarVisible = raw.menuBarVisible !== false;
     if (Object.prototype.hasOwnProperty.call(raw, 'homepage')) {
       hasHomepageKey = true;
       const parsed = normalizeHomepage(String(raw.homepage || ''));
@@ -86,7 +84,6 @@ function loadChromePrefs(): void {
     }
   } catch {
     bookmarksBarVisible = true;
-    menuBarVisible = true;
   }
   if (!hasHomepageKey) {
     const migrated = rulesStore.getHomepage();
@@ -100,7 +97,7 @@ function saveChromePrefs(): void {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(
     path,
-    JSON.stringify({ bookmarksBarVisible, menuBarVisible, homepage }, null, 2),
+    JSON.stringify({ bookmarksBarVisible, homepage }, null, 2),
     'utf8'
   );
 }
@@ -129,6 +126,7 @@ function setCurrentPageAsHomepage(): { ok: boolean; error?: string; homepage?: s
 }
 
 const APP_NAME = '简行浏览器';
+const OFFICIAL_WEBSITE = 'https://spacedreams.cn/simplygo/';
 
 interface TabState {
   id: string;
@@ -147,6 +145,7 @@ let historyWindow: BrowserWindow | null = null;
 let downloadsWindow: BrowserWindow | null = null;
 let updateWindow: BrowserWindow | null = null;
 let passwordsWindow: BrowserWindow | null = null;
+let aboutWindow: BrowserWindow | null = null;
 let rulesStore: RulesStore;
 let bookmarksStore: BookmarksStore;
 let accountStore: AccountStore;
@@ -308,7 +307,6 @@ function tabSnapshot() {
     filteringEnabled: rulesStore.isFilteringEnabled(),
     homepage: getHomepage(),
     bookmarksBarVisible,
-    menuBarVisible,
     customTitleMenu: usesInWindowTitleMenu(),
     zoomFactor: active ? Number(active.view.webContents.getZoomFactor() || 1) : 1,
   };
@@ -361,7 +359,6 @@ function refreshAppMenuIfNeeded(): void {
     tab?.canGoForward ? '1' : '0',
     currentPageIsBookmarked() ? '1' : '0',
     bookmarksBarVisible ? '1' : '0',
-    menuBarVisible ? '1' : '0',
   ].join('|');
   if (key === lastMenuKey) return;
   lastMenuKey = key;
@@ -711,7 +708,7 @@ function createMainWindow(): void {
     minHeight: 600,
     title: APP_NAME,
     backgroundColor: CHROME_BG,
-    autoHideMenuBar: usesInWindowTitleMenu() ? false : !menuBarVisible,
+    autoHideMenuBar: false,
     webPreferences: {
       preload: distPath('preload', 'browser.js'),
       contextIsolation: true,
@@ -724,7 +721,7 @@ function createMainWindow(): void {
     winOpts.titleBarOverlay = {
       color: CHROME_BG,
       symbolColor: CHROME_FG,
-      height: menuBarVisible ? TITLE_MENU_HEIGHT : TAB_BAR_HEIGHT,
+      height: TITLE_MENU_HEIGHT,
     };
   }
   mainWindow = new BrowserWindow(winOpts);
@@ -808,7 +805,7 @@ function applyTitleBarOverlay(): void {
     mainWindow.setTitleBarOverlay({
       color: CHROME_BG,
       symbolColor: CHROME_FG,
-      height: menuBarVisible ? TITLE_MENU_HEIGHT : TAB_BAR_HEIGHT,
+      height: TITLE_MENU_HEIGHT,
     });
   } catch {
     /* overlay not available */
@@ -824,8 +821,8 @@ function applyMenuBarVisibility(): void {
     mainWindow.setMenuBarVisibility(false);
     applyTitleBarOverlay();
   } else {
-    mainWindow.setAutoHideMenuBar(!menuBarVisible);
-    mainWindow.setMenuBarVisibility(menuBarVisible);
+    mainWindow.setAutoHideMenuBar(false);
+    mainWindow.setMenuBarVisibility(true);
   }
   layoutViews();
 }
@@ -1005,11 +1002,39 @@ function saveCurrentPage(): void {
   downloadsManager.startUrl(tab.view.webContents, url);
 }
 
+function goBackActive(): void {
+  const tab = activeTab();
+  if (tab?.view.webContents.canGoBack()) tab.view.webContents.goBack();
+}
+
+function goForwardActive(): void {
+  const tab = activeTab();
+  if (tab?.view.webContents.canGoForward()) tab.view.webContents.goForward();
+}
+
 function reloadActiveTab(ignoreCache = false): void {
   const tab = activeTab();
   if (!tab) return;
   if (ignoreCache) tab.view.webContents.reloadIgnoringCache();
   else tab.view.webContents.reload();
+}
+
+function historyNavMenuItems(): MenuItemConstructorOptions[] {
+  const tab = activeTab();
+  return [
+    {
+      label: '后退',
+      accelerator: 'Alt+Left',
+      enabled: Boolean(tab?.canGoBack),
+      click: () => goBackActive(),
+    },
+    {
+      label: '前进',
+      accelerator: 'Alt+Right',
+      enabled: Boolean(tab?.canGoForward),
+      click: () => goForwardActive(),
+    },
+  ];
 }
 
 async function confirmClearCache(): Promise<void> {
@@ -1109,6 +1134,7 @@ function popupAppMenu(x: number, y: number): void {
       },
     },
     { type: 'separator' },
+    ...historyNavMenuItems(),
     {
       label: '书签',
       submenu: [
@@ -1192,18 +1218,6 @@ function popupAppMenu(x: number, y: number): void {
       label: '设为默认浏览器…',
       click: () => {
         void registerAsDefaultBrowser();
-      },
-    },
-    {
-      label: '菜单栏',
-      type: 'checkbox',
-      checked: menuBarVisible,
-      click: () => {
-        menuBarVisible = !menuBarVisible;
-        saveChromePrefs();
-        applyMenuBarVisibility();
-        notifyShell('shell:state', tabSnapshot());
-        refreshAppMenu();
       },
     },
     {
@@ -1301,18 +1315,6 @@ function buildAppMenuTemplate(): MenuItemConstructorOptions[] {
             refreshAppMenu();
           },
         },
-        {
-          label: '菜单栏',
-          type: 'checkbox',
-          checked: menuBarVisible,
-          click: () => {
-            menuBarVisible = !menuBarVisible;
-            saveChromePrefs();
-            applyMenuBarVisibility();
-            notifyShell('shell:state', tabSnapshot());
-            refreshAppMenu();
-          },
-        },
         { type: 'separator' },
         {
           label: '放大',
@@ -1357,22 +1359,7 @@ function buildAppMenuTemplate(): MenuItemConstructorOptions[] {
     {
       label: '历史',
       submenu: [
-        {
-          label: '后退',
-          accelerator: 'Alt+Left',
-          enabled: Boolean(tab?.canGoBack),
-          click: () => {
-            if (tab?.view.webContents.canGoBack()) tab.view.webContents.goBack();
-          },
-        },
-        {
-          label: '前进',
-          accelerator: 'Alt+Right',
-          enabled: Boolean(tab?.canGoForward),
-          click: () => {
-            if (tab?.view.webContents.canGoForward()) tab.view.webContents.goForward();
-          },
-        },
+        ...historyNavMenuItems(),
         { type: 'separator' },
         {
           label: '显示全部历史',
@@ -1454,18 +1441,33 @@ function buildAppMenuTemplate(): MenuItemConstructorOptions[] {
 }
 
 function showAboutDialog(): void {
-  const options = {
-    type: 'info' as const,
-    title: `关于 ${APP_NAME}`,
-    message: APP_NAME,
-    detail: `版本 ${app.getVersion()}\n面向家庭的青少年浏览器。\n访问由家长配置组控制；历史记录仅家长可删除。`,
-    buttons: ['确定'],
-  };
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    void dialog.showMessageBox(mainWindow, options);
-  } else {
-    void dialog.showMessageBox(options);
+  if (aboutWindow && !aboutWindow.isDestroyed()) {
+    aboutWindow.focus();
+    return;
   }
+  aboutWindow = new BrowserWindow({
+    width: 360,
+    height: 300,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    parent: mainWindow ?? undefined,
+    modal: Boolean(mainWindow && !mainWindow.isDestroyed()),
+    title: `关于 ${APP_NAME}`,
+    backgroundColor: '#121a24',
+    autoHideMenuBar: true,
+    webPreferences: {
+      preload: distPath('preload', 'about.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  aboutWindow.setMenuBarVisibility(false);
+  void aboutWindow.loadURL(rendererFile('about', 'index.html'));
+  aboutWindow.on('closed', () => {
+    aboutWindow = null;
+  });
 }
 
 function openBookmarksManager(): void {
@@ -1553,13 +1555,11 @@ function registerIpc(): void {
   });
 
   ipcMain.handle('shell:goBack', () => {
-    const tab = tabs.find((t) => t.id === activeTabId);
-    if (tab?.view.webContents.canGoBack()) tab.view.webContents.goBack();
+    goBackActive();
   });
 
   ipcMain.handle('shell:goForward', () => {
-    const tab = tabs.find((t) => t.id === activeTabId);
-    if (tab?.view.webContents.canGoForward()) tab.view.webContents.goForward();
+    goForwardActive();
   });
 
   ipcMain.handle('shell:reload', (_e, ignoreCache?: boolean) => {
@@ -1633,15 +1633,6 @@ function registerIpc(): void {
     return { ok: true, visible: bookmarksBarVisible };
   });
 
-  ipcMain.handle('shell:toggleMenuBar', () => {
-    menuBarVisible = !menuBarVisible;
-    saveChromePrefs();
-    applyMenuBarVisibility();
-    notifyShell('shell:state', tabSnapshot());
-    refreshAppMenu();
-    return { ok: true, visible: menuBarVisible };
-  });
-
   ipcMain.handle('shell:zoomIn', () => {
     zoomBy(0.1);
     return { ok: true, zoomFactor: currentZoomFactor() };
@@ -1697,6 +1688,22 @@ function registerIpc(): void {
   ipcMain.handle('shell:about', () => {
     showAboutDialog();
     return { ok: true, version: app.getVersion() };
+  });
+
+  ipcMain.handle('about:getInfo', () => ({
+    name: APP_NAME,
+    version: app.getVersion(),
+    website: OFFICIAL_WEBSITE,
+  }));
+
+  ipcMain.handle('about:openWebsite', () => {
+    void shell.openExternal(OFFICIAL_WEBSITE);
+    return { ok: true };
+  });
+
+  ipcMain.handle('about:close', () => {
+    if (aboutWindow && !aboutWindow.isDestroyed()) aboutWindow.close();
+    return { ok: true };
   });
 
   ipcMain.handle('shell:appInfo', () => ({
@@ -1908,7 +1915,6 @@ function registerIpc(): void {
   });
 
   // Bookmark sync: account login only, no parent unlock required
-  ipcMain.handle('bookmarks:appVersion', () => app.getVersion());
   ipcMain.handle('bookmarks:account', () => accountStore.getPublic());
 
   ipcMain.handle('bookmarks:syncStatus', async () => {

@@ -62,7 +62,6 @@ class BookmarksActivity : AppCompatActivity() {
         binding.folderTree.adapter = treeAdapter
         binding.itemList.layoutManager = LinearLayoutManager(this)
         binding.itemList.adapter = listAdapter
-        binding.appVersion.text = "v${versionName()}"
 
         binding.btnNewFolder.setOnClickListener { createFolder() }
         binding.btnRename.setOnClickListener { renameSelected() }
@@ -278,10 +277,6 @@ class BookmarksActivity : AppCompatActivity() {
     private fun setStatus(msg: String) {
         binding.status.text = msg
     }
-
-    private fun versionName(): String = try {
-        packageManager.getPackageInfo(packageName, 0).versionName ?: "—"
-    } catch (_: Exception) { "—" }
 
     private class RowAdapter(
         private val onClick: (BookmarkNode) -> Unit,

@@ -49,8 +49,5 @@ searchInput.addEventListener('input', () => {
   render();
 });
 
-api.appVersion().then((v) => {
-  document.getElementById('appVersion').textContent = v ? `v${v}` : 'v—';
-});
 api.onChanged(() => render());
 render();

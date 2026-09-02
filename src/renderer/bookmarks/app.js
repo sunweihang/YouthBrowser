@@ -501,11 +501,6 @@ document.getElementById('btnPullBm').addEventListener('click', async () => {
   void refreshBmSync();
 });
 
-api.appVersion().then((v) => {
-  const el = document.getElementById('appVersion');
-  if (el) el.textContent = v ? `v${v}` : 'v—';
-}).catch(() => {});
-
 api.onChanged(async (next) => {
   await applySnapshot(next);
   void refreshBmSync();

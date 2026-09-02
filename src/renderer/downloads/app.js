@@ -144,8 +144,5 @@ document.getElementById('clearBtn').addEventListener('click', async () => {
   render();
 });
 
-api.appVersion().then((v) => {
-  document.getElementById('appVersion').textContent = v ? `v${v}` : 'v—';
-});
 api.onChanged(() => render());
 render();

@@ -10,7 +10,6 @@ contextBridge.exposeInMainWorld('youthDownloads', {
   remove: (id: string) => ipcRenderer.invoke('downloads:remove', id),
   clear: () => ipcRenderer.invoke('downloads:clear'),
   openFolder: () => ipcRenderer.invoke('downloads:openFolder'),
-  appVersion: () => ipcRenderer.invoke('bookmarks:appVersion'),
   onChanged: (cb: (payload: unknown) => void) => {
     const listener = (_: unknown, payload: unknown) => cb(payload);
     ipcRenderer.on('downloads:changed', listener);

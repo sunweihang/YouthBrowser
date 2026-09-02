@@ -11,8 +11,8 @@ android {
         applicationId = "com.jianxing.browser"
         minSdk = 26
         targetSdk = 34
-        versionCode = 31
-        versionName = "1.1.31"
+        versionCode = 32
+        versionName = "1.1.32"
     }
 
     signingConfigs {

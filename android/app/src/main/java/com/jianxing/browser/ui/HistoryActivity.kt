@@ -31,7 +31,6 @@ class HistoryActivity : AppCompatActivity() {
         binding = ActivityHistoryBinding.inflate(layoutInflater)
         setContentView(binding.root)
         canManage = intent.getBooleanExtra(EXTRA_UNLOCKED, false)
-        binding.appVersion.text = "v${versionName()}"
         adapter = HistoryAdapter(
             canDelete = canManage,
             onOpen = { entry ->
@@ -76,10 +75,6 @@ class HistoryActivity : AppCompatActivity() {
         binding.historyEmpty.isVisible = items.isEmpty()
         binding.historyList.isVisible = items.isNotEmpty()
     }
-
-    private fun versionName(): String = try {
-        packageManager.getPackageInfo(packageName, 0).versionName ?: "—"
-    } catch (_: Exception) { "—" }
 
     private class HistoryAdapter(
         private val canDelete: Boolean,
