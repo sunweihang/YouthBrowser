@@ -987,4 +987,11 @@ function enhancePasswordFields(root) {
 }
 
 enhancePasswordFields();
+if (api.onHistoryChanged) {
+  api.onHistoryChanged(() => {
+    void refreshHistoryCount();
+    const page = document.querySelector('.page.active');
+    if (page && page.dataset.page === 'history') void refreshHistory();
+  });
+}
 boot();

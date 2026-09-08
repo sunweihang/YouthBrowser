@@ -1,4 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import { installRendererCrashHooks } from './crash-hook';
+
+installRendererCrashHooks('bookmarks');
 
 contextBridge.exposeInMainWorld('youthBookmarks', {
   snapshot: () => ipcRenderer.invoke('bookmarks:snapshot'),

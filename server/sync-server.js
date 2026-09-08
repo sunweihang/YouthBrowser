@@ -18,7 +18,10 @@ const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
 const CONFIGS_DIR = path.join(DATA_DIR, 'configs');
 const BOOKMARKS_DIR = path.join(DATA_DIR, 'bookmarks');
+const HISTORY_DIR = path.join(DATA_DIR, 'history');
+const CRASHES_DIR = path.join(DATA_DIR, 'crashes');
 const TOKENS_FILE = path.join(DATA_DIR, 'tokens.json');
+const CRASH_DAILY_MAX_BYTES = 20 * 1024 * 1024;
 const TOKEN_TTL_MS = (Number(process.env.TOKEN_TTL_DAYS) || 30) * 86400000;
 const SCRYPT = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
 
@@ -26,6 +29,8 @@ function ensureDirs() {
   fs.mkdirSync(DATA_DIR, { recursive: true });
   fs.mkdirSync(CONFIGS_DIR, { recursive: true });
   fs.mkdirSync(BOOKMARKS_DIR, { recursive: true });
+  fs.mkdirSync(HISTORY_DIR, { recursive: true });
+  fs.mkdirSync(CRASHES_DIR, { recursive: true });
   if (!fs.existsSync(USERS_FILE)) fs.writeFileSync(USERS_FILE, '{}', 'utf8');
   if (!fs.existsSync(TOKENS_FILE)) fs.writeFileSync(TOKENS_FILE, '{}', 'utf8');
 }
@@ -91,7 +96,7 @@ function readBody(req) {
     let size = 0;
     req.on('data', (c) => {
       size += c.length;
-      if (size > 2 * 1024 * 1024) {
+      if (size > 4 * 1024 * 1024) {
         reject(new Error('body too large'));
         req.destroy();
         return;
@@ -137,6 +142,51 @@ function configPath(username) {
 
 function bookmarksPath(username) {
   return path.join(BOOKMARKS_DIR, `${username}.json`);
+}
+
+function historyPath(username) {
+  return path.join(HISTORY_DIR, `${username}.json`);
+}
+
+function emptyHistoryDoc() {
+  return {
+    entries: [],
+    deletedIds: [],
+    clearedAt: 0,
+    revision: 0,
+    updatedAt: 0,
+  };
+}
+
+function normalizeHistoryPayload(body) {
+  const entries = Array.isArray(body && body.entries) ? body.entries : [];
+  const out = [];
+  const seen = new Set();
+  for (const e of entries) {
+    if (!e || typeof e !== 'object') continue;
+    const id = String(e.id || '').slice(0, 80);
+    const url = String(e.url || '').slice(0, 2048);
+    if (!id || !/^https?:\/\//i.test(url)) continue;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push({
+      id,
+      url,
+      title: String(e.title || '').slice(0, 500),
+      host: String(e.host || '').slice(0, 253).toLowerCase(),
+      visitedAt: Number(e.visitedAt) || 0,
+    });
+    if (out.length >= 2000) break;
+  }
+  const deletedIds = [
+    ...new Set(
+      (Array.isArray(body && body.deletedIds) ? body.deletedIds : [])
+        .map((x) => String(x || '').slice(0, 80))
+        .filter(Boolean)
+    ),
+  ].slice(-3000);
+  const clearedAt = Math.max(0, Number(body && body.clearedAt) || 0);
+  return { entries: out, deletedIds, clearedAt };
 }
 
 async function handle(req, res) {
@@ -191,6 +241,7 @@ async function handle(req, res) {
         revision: 0,
         updatedAt: Date.now(),
       });
+      writeJson(historyPath(username), emptyHistoryDoc());
       const token = issueToken(username);
       return send(res, 200, { ok: true, token, username });
     }
@@ -333,10 +384,130 @@ async function handle(req, res) {
       });
     }
 
+    if (req.method === 'GET' && pathname === '/sync/history') {
+      const auth = authUser(req);
+      if (!auth) return send(res, 401, { ok: false, error: '未登录' });
+      const cfg = readJson(historyPath(auth.username), emptyHistoryDoc());
+      const normalized = normalizeHistoryPayload(cfg);
+      return send(res, 200, {
+        ok: true,
+        entries: normalized.entries,
+        deletedIds: normalized.deletedIds,
+        clearedAt: normalized.clearedAt,
+        revision: cfg.revision || 0,
+        updatedAt: cfg.updatedAt || 0,
+      });
+    }
+
+    if (req.method === 'PUT' && pathname === '/sync/history') {
+      const auth = authUser(req);
+      if (!auth) return send(res, 401, { ok: false, error: '未登录' });
+      const body = await readBody(req);
+      if (!Array.isArray(body.entries)) {
+        return send(res, 400, { ok: false, error: 'entries 必须是数组' });
+      }
+      const current = readJson(historyPath(auth.username), emptyHistoryDoc());
+      const clientRev = Number(body.revision);
+      if (
+        Number.isFinite(clientRev) &&
+        clientRev > 0 &&
+        clientRev < (current.revision || 0)
+      ) {
+        return send(res, 409, {
+          ok: false,
+          error: '服务器历史记录已更新，请先拉取再上传',
+          revision: current.revision,
+          updatedAt: current.updatedAt,
+        });
+      }
+      const normalized = normalizeHistoryPayload(body);
+      const next = {
+        entries: normalized.entries,
+        deletedIds: normalized.deletedIds,
+        clearedAt: normalized.clearedAt,
+        revision: (current.revision || 0) + 1,
+        updatedAt: Date.now(),
+      };
+      writeJson(historyPath(auth.username), next);
+      return send(res, 200, {
+        ok: true,
+        revision: next.revision,
+        updatedAt: next.updatedAt,
+      });
+    }
+
+    if (req.method === 'POST' && pathname === '/telemetry/crash') {
+      const body = await readBody(req);
+      const report = sanitizeCrashReport(body, authUser(req));
+      if (!report) {
+        return send(res, 400, { ok: false, error: 'invalid report' });
+      }
+      const ymd = new Date(report.ts || Date.now()).toISOString().slice(0, 10);
+      const daily = path.join(CRASHES_DIR, `${ymd}.jsonl`);
+      try {
+        if (fs.existsSync(daily) && fs.statSync(daily).size > CRASH_DAILY_MAX_BYTES) {
+          return send(res, 429, { ok: false, error: 'quota' });
+        }
+      } catch {
+        /* ignore quota check failure */
+      }
+      fs.appendFileSync(daily, `${JSON.stringify(report)}\n`, 'utf8');
+      return send(res, 200, { ok: true, id: report.id });
+    }
+
     return send(res, 404, { ok: false, error: 'not found' });
   } catch (e) {
     return send(res, 400, { ok: false, error: e.message || 'bad request' });
   }
+}
+
+function clip(value, max) {
+  return String(value == null ? '' : value).replace(/\u0000/g, '').slice(0, max);
+}
+
+function sanitizeCrashReport(body, auth) {
+  if (!body || typeof body !== 'object') return null;
+  const message = clip(body.message, 2000);
+  if (!message) return null;
+  const kinds = new Set([
+    'uncaught',
+    'unhandledrejection',
+    'render-gone',
+    'child-gone',
+    'unresponsive',
+    'page-fail',
+    'renderer-js',
+    'android-crash',
+    'webview-gone',
+    'webview-fail',
+  ]);
+  const kind = kinds.has(body.kind) ? body.kind : 'uncaught';
+  let extra;
+  if (body.extra && typeof body.extra === 'object') {
+    try {
+      extra = JSON.parse(clip(JSON.stringify(body.extra), 8000) || '{}');
+    } catch {
+      extra = undefined;
+    }
+  }
+  return {
+    id: clip(body.id, 80) || crypto.randomBytes(16).toString('hex'),
+    ts: Number(body.ts) || Date.now(),
+    receivedAt: Date.now(),
+    kind,
+    level: body.level === 'fatal' ? 'fatal' : 'error',
+    message,
+    stack: body.stack ? clip(body.stack, 16000) : undefined,
+    url: body.url ? clip(body.url, 1024) : undefined,
+    platform: clip(body.platform, 32),
+    arch: clip(body.arch, 32),
+    osRelease: clip(body.osRelease, 128),
+    appVersion: clip(body.appVersion, 32),
+    electronVersion: clip(body.electronVersion, 32),
+    installId: clip(body.installId, 80),
+    username: clip((auth && auth.username) || body.username, 64),
+    extra,
+  };
 }
 
 function issueToken(username) {

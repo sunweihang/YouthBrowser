@@ -209,7 +209,7 @@ export function isDownloadAllowed(rawUrl: string, rules: RulesConfig): boolean {
   return matchingGroups(host, rules).length > 0;
 }
 
-/** Let Chromium navigate so Content-Disposition downloads are not cancelled. */
+/** Let Chromium navigate so form POSTs and Content-Disposition downloads keep working. */
 export function canLetNativeNavigate(
   rawUrl: string,
   rules: RulesConfig

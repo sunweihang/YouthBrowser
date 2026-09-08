@@ -208,6 +208,51 @@ object NavigationGuard {
         return matchingGroups(host, rules).isNotEmpty()
     }
 
+    /** Let WebView keep the original request (including form POSTs). */
+    fun canLetNativeNavigate(rawUrl: String, rules: RulesConfig): Boolean {
+        val href = rawUrl.trim()
+        if (href.isEmpty()) return false
+        if (href.startsWith("blob:") || href.startsWith("data:")) return true
+        if (href.startsWith("file:") && href.contains("/android_asset/")) return true
+
+        val url = try {
+            URI(href)
+        } catch (_: Exception) {
+            return false
+        }
+        val protocol = url.scheme?.lowercase()
+        if (protocol != "http" && protocol != "https") return false
+        if (!rules.filteringEnabled) return true
+
+        val host = normalizeHost(url.host ?: "")
+        if (host.isEmpty()) return false
+        if (host == "b23.tv" || host == "www.b23.tv") return false
+        if (isBiliSearchHost(host) && hasEnabledBiliExtension(rules)) return true
+        if (isBiliStaticOrApi(host) && hasEnabledBiliExtension(rules)) {
+            val matched = matchingGroups(host, rules)
+            val anyBili = rules.groups.filter { it.enabled && it.extensionId == "bilibili" }
+            val covered = anyBili.any { hostAllowed(host, it.hosts) }
+            if (covered || matched.isNotEmpty() || isBiliFamilyHost(host)) return true
+        }
+
+        val matched = matchingGroups(host, rules)
+        if (matched.isEmpty()) return false
+
+        val biliGroups = matched.filter { it.extensionId == "bilibili" }
+        if (biliGroups.isNotEmpty() && isBiliFamilyHost(host)) {
+            val pathname = url.path?.ifEmpty { "/" } ?: "/"
+            val kind = isAllowedBiliPath(pathname)
+            if (kind == "asset" || kind == "search" || kind == "home") return true
+            if (kind == "space") {
+                val mid = BiliResolver.parseSpaceMid(pathname)
+                val mids = biliMidsFromGroups(biliGroups)
+                return mid != null && mids.contains(mid)
+            }
+            return false
+        }
+        return true
+    }
+
     fun canNavigate(rawUrl: String, rules: RulesConfig): NavigateResult {
         var urlString = rawUrl.trim()
         if (urlString.isEmpty()) return deny(BlockReason.INVALID_URL, "地址为空")

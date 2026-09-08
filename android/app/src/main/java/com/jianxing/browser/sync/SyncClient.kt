@@ -36,6 +36,16 @@ class SyncClient(private val account: AccountStore) {
         val updatedAt: Long? = null
     )
 
+    data class HistoryResult(
+        val ok: Boolean,
+        val error: String? = null,
+        val entries: JSONArray? = null,
+        val deletedIds: JSONArray? = null,
+        val clearedAt: Long? = null,
+        val revision: Int? = null,
+        val updatedAt: Long? = null
+    )
+
     private fun api(
         baseUrl: String,
         path: String,
@@ -198,6 +208,59 @@ class SyncClient(private val account: AccountStore) {
             )
         } catch (e: Exception) {
             BookmarksResult(ok = false, error = e.message ?: "拉取收藏夹失败")
+        }
+    }
+
+    fun pullHistory(): HistoryResult {
+        return try {
+            val s = account.getSession() ?: return HistoryResult(ok = false, error = "未登录账号")
+            val data = api(s.serverUrl, "/sync/history", token = s.token)
+            if (!data.optBoolean("ok")) {
+                return HistoryResult(ok = false, error = data.optString("error", "拉取历史记录失败"))
+            }
+            HistoryResult(
+                ok = true,
+                entries = data.optJSONArray("entries") ?: JSONArray(),
+                deletedIds = data.optJSONArray("deletedIds") ?: JSONArray(),
+                clearedAt = data.optLong("clearedAt", 0L),
+                revision = data.optInt("revision", 0),
+                updatedAt = data.optLong("updatedAt", 0L)
+            )
+        } catch (e: Exception) {
+            HistoryResult(ok = false, error = e.message ?: "拉取历史记录失败")
+        }
+    }
+
+    fun pushHistory(
+        entries: JSONArray,
+        deletedIds: JSONArray,
+        clearedAt: Long,
+        localRevision: Int
+    ): HistoryResult {
+        return try {
+            val s = account.getSession() ?: return HistoryResult(ok = false, error = "未登录账号")
+            val body = JSONObject()
+                .put("entries", entries)
+                .put("deletedIds", deletedIds)
+                .put("clearedAt", clearedAt)
+                .put("revision", localRevision)
+            val data = api(
+                s.serverUrl,
+                "/sync/history",
+                method = "PUT",
+                token = s.token,
+                body = body
+            )
+            if (!data.optBoolean("ok")) {
+                return HistoryResult(ok = false, error = data.optString("error", "上传历史记录失败"))
+            }
+            HistoryResult(
+                ok = true,
+                revision = data.optInt("revision", 0),
+                updatedAt = data.optLong("updatedAt", 0L)
+            )
+        } catch (e: Exception) {
+            HistoryResult(ok = false, error = e.message ?: "上传历史记录失败")
         }
     }
 

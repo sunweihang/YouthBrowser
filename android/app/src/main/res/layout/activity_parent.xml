@@ -982,6 +982,14 @@
                         android:layout_height="wrap_content"
                         android:text="上传收藏夹" />
 
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="浏览历史在登录后会自动同步，无需手动上传或拉取。"
+                        android:textColor="@color/jx_muted"
+                        android:textSize="12sp" />
+
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btnSyncLogout"
                         style="@style/Widget.MaterialComponents.Button.TextButton"

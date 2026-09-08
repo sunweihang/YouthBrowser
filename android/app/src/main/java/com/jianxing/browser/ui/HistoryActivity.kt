@@ -19,6 +19,7 @@ import com.jianxing.browser.JianXingApp
 import com.jianxing.browser.R
 import com.jianxing.browser.databinding.ActivityHistoryBinding
 import com.jianxing.browser.model.HistoryEntry
+import com.jianxing.browser.sync.HistorySync
 import java.util.Calendar
 
 class HistoryActivity : AppCompatActivity() {
@@ -42,6 +43,7 @@ class HistoryActivity : AppCompatActivity() {
                 JianXingApp.instance.historyStore.remove(entry.id)
                 Toast.makeText(this, "已删除", Toast.LENGTH_SHORT).show()
                 refresh()
+                HistorySync.syncNow()
             }
         )
         binding.historyList.layoutManager = LinearLayoutManager(this)
@@ -57,6 +59,7 @@ class HistoryActivity : AppCompatActivity() {
                     JianXingApp.instance.historyStore.clear()
                     Toast.makeText(this, "已清空历史记录", Toast.LENGTH_SHORT).show()
                     refresh()
+                    HistorySync.syncNow()
                 }
                 .show()
         }
@@ -66,6 +69,7 @@ class HistoryActivity : AppCompatActivity() {
             override fun afterTextChanged(s: Editable?) { refresh() }
         })
         refresh()
+        HistorySync.syncNow { _, changed -> if (changed) refresh() }
     }
 
     private fun refresh() {

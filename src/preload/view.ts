@@ -52,7 +52,11 @@ const FILL_SRC = `function fillSiteLogin(creds) {
     }
   }
   if (!user && inputs.length) user = inputs[0];
+  const active = document.activeElement;
+  if (user === active || pwd === active) return;
   if (user && creds.username && !user.value) setVal(user, creds.username);
+  const typedUser = user ? String(user.value || '').trim() : '';
+  if (typedUser && typedUser !== String(creds.username || '').trim()) return;
   if (pwd && !pwd.value) setVal(pwd, creds.password);
 }`;
 
@@ -103,6 +107,38 @@ function collectLogin(): { username: string; password: string } | null {
 
 let lastReport = '';
 let fillTimer: ReturnType<typeof setTimeout> | null = null;
+let fillSuppressed = false;
+
+function isCredentialField(el: EventTarget | null): el is HTMLInputElement {
+  if (!(el instanceof HTMLInputElement)) return false;
+  const t = String(el.type || 'text').toLowerCase();
+  if (t === 'password' || el.classList.contains('jx-pw-shown')) return true;
+  if (
+    t === 'hidden' ||
+    t === 'submit' ||
+    t === 'button' ||
+    t === 'checkbox' ||
+    t === 'radio' ||
+    t === 'file'
+  ) {
+    return false;
+  }
+  const key = `${el.name} ${el.id} ${el.autocomplete} ${el.placeholder}`.toLowerCase();
+  if (t === 'email' || t === 'tel' || /user|email|login|account|phone|mobile|name/.test(key)) {
+    return true;
+  }
+  if (t !== 'text' && t !== 'number') return false;
+  const form = el.form;
+  if (form) {
+    return Boolean(form.querySelector('input[type="password"], input.jx-pw-shown'));
+  }
+  return Boolean(document.querySelector('input[type="password"], input.jx-pw-shown'));
+}
+
+function suppressFillFromUser(e: Event): void {
+  if (!e.isTrusted || !isCredentialField(e.target)) return;
+  fillSuppressed = true;
+}
 
 function reportLogin(): void {
   if (!isHttpPage()) return;
@@ -115,9 +151,9 @@ function reportLogin(): void {
 }
 
 async function tryFill(): Promise<void> {
-  if (!isHttpPage()) return;
+  if (!isHttpPage() || fillSuppressed) return;
   const creds = await ipcRenderer.invoke('sitePassword:lookup');
-  if (!creds) return;
+  if (!creds || fillSuppressed) return;
   try {
     await webFrame.executeJavaScript(
       `(${FILL_SRC})(${JSON.stringify(creds)})`,
@@ -131,7 +167,7 @@ async function tryFill(): Promise<void> {
 function scheduleFill(): void {
   if (fillTimer) clearTimeout(fillTimer);
   fillTimer = setTimeout(() => {
-    void tryFill();
+    if (!fillSuppressed) void tryFill();
     attachPasswordEyes();
   }, 200);
 }
@@ -219,6 +255,11 @@ function initSitePasswords(): void {
   if (!isHttpPage()) return;
   void tryFill();
   attachPasswordEyes();
+  document.addEventListener('beforeinput', suppressFillFromUser, true);
+  document.addEventListener('input', suppressFillFromUser, true);
+  document.addEventListener('paste', suppressFillFromUser, true);
+  document.addEventListener('cut', suppressFillFromUser, true);
+  document.addEventListener('compositionstart', suppressFillFromUser, true);
   document.addEventListener('submit', () => reportLogin(), true);
   document.addEventListener(
     'keydown',

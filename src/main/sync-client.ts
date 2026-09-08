@@ -77,6 +77,16 @@ type BookmarksSyncResult = {
   updatedAt?: number;
 };
 
+type HistorySyncResult = {
+  ok: boolean;
+  error?: string;
+  entries?: unknown[];
+  deletedIds?: string[];
+  clearedAt?: number;
+  revision?: number;
+  updatedAt?: number;
+};
+
 /** Stable compare for sync "already up to date" checks. */
 export function groupsPayloadEqual(a: SiteGroup[], b: SiteGroup[]): boolean {
   return JSON.stringify(normalizeGroupsPayload(a)) === JSON.stringify(normalizeGroupsPayload(b));
@@ -241,6 +251,71 @@ export class SyncClient {
       return {
         ok: false,
         error: e instanceof Error ? e.message : '拉取收藏夹失败',
+      };
+    }
+  }
+
+  async pullHistory(): Promise<{
+    ok: boolean;
+    error?: string;
+    entries?: unknown[];
+    deletedIds?: string[];
+    clearedAt?: number;
+    revision?: number;
+    updatedAt?: number;
+  }> {
+    try {
+      const s = this.requireSession();
+      const data = await api<HistorySyncResult>(s.serverUrl, '/sync/history', {
+        token: s.token,
+      });
+      if (!data.ok) return { ok: false, error: data.error || '拉取历史记录失败' };
+      return {
+        ok: true,
+        entries: Array.isArray(data.entries) ? data.entries : [],
+        deletedIds: Array.isArray(data.deletedIds)
+          ? data.deletedIds.map((id) => String(id))
+          : [],
+        clearedAt: Number(data.clearedAt) || 0,
+        revision: data.revision || 0,
+        updatedAt: data.updatedAt || 0,
+      };
+    } catch (e) {
+      return {
+        ok: false,
+        error: e instanceof Error ? e.message : '拉取历史记录失败',
+      };
+    }
+  }
+
+  async pushHistory(
+    entries: unknown[],
+    deletedIds: string[],
+    clearedAt: number,
+    localRevision: number
+  ): Promise<{ ok: boolean; error?: string; revision?: number; updatedAt?: number }> {
+    try {
+      const s = this.requireSession();
+      const data = await api<HistorySyncResult>(s.serverUrl, '/sync/history', {
+        method: 'PUT',
+        token: s.token,
+        body: {
+          entries,
+          deletedIds,
+          clearedAt,
+          revision: localRevision || 0,
+        },
+      });
+      if (!data.ok) return { ok: false, error: data.error || '上传历史记录失败' };
+      return {
+        ok: true,
+        revision: data.revision || 0,
+        updatedAt: data.updatedAt || 0,
+      };
+    } catch (e) {
+      return {
+        ok: false,
+        error: e instanceof Error ? e.message : '上传历史记录失败',
       };
     }
   }

@@ -3,6 +3,8 @@ const api = window.youthBrowser;
 
 const tabsEl = document.getElementById('tabs');
 const urlInput = document.getElementById('urlInput');
+const backBtn = document.getElementById('back');
+const forwardBtn = document.getElementById('forward');
 const reloadBtn = document.getElementById('reload');
 const newTabBtn = document.getElementById('newTab');
 const bookmarkBtn = document.getElementById('bookmarkBtn');
@@ -133,6 +135,7 @@ function renderBookmarks(toolbar) {
 
 function render(state) {
   if (!state) return;
+  const zoomChanged = lastState && lastState.zoomFactor !== state.zoomFactor;
   lastState = state;
   tabsEl.innerHTML = '';
   for (const tab of state.tabs) {
@@ -180,9 +183,13 @@ function render(state) {
       ? '取消收藏'
       : '收藏本页';
     bookmarkBtn.disabled = !canDragUrl;
+    backBtn.disabled = !active.canGoBack;
+    forwardBtn.disabled = !active.canGoForward;
   } else {
     urlInput.draggable = false;
     bookmarkBtn.disabled = true;
+    backBtn.disabled = true;
+    forwardBtn.disabled = true;
     bookmarkBtn.classList.remove('active');
     bookmarkBtn.textContent = '☆';
     urlInput.placeholder = state.filteringEnabled
@@ -203,6 +210,7 @@ function render(state) {
   menuBtn.classList.toggle('needs-setup', Boolean(state.needsParentSetup));
   menuBtn.title = '打开菜单';
   syncWindowControlsPad();
+  if (zoomChanged) syncChromeExtra();
 }
 
 urlInput.addEventListener('dragstart', (e) => {
@@ -229,6 +237,8 @@ navForm.addEventListener('submit', (e) => {
   if (url) api.navigate(url);
 });
 
+backBtn.addEventListener('click', () => api.goBack());
+forwardBtn.addEventListener('click', () => api.goForward());
 reloadBtn.addEventListener('click', (e) => api.reload(e.shiftKey));
 newTabBtn.addEventListener('click', () => api.newTab());
 bookmarkBtn.addEventListener('click', () => api.toggleBookmark());

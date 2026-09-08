@@ -22,11 +22,14 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.webkit.JavascriptInterface
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import com.jianxing.browser.crash.CrashReporter
 import android.widget.LinearLayout
 import android.widget.PopupMenu
 import android.widget.PopupWindow
@@ -42,6 +45,7 @@ import com.jianxing.browser.data.BookmarkNode
 import com.jianxing.browser.data.DownloadsHelper
 import com.jianxing.browser.databinding.ActivityMainBinding
 import com.jianxing.browser.guard.NavigationGuard
+import com.jianxing.browser.sync.HistorySync
 import com.jianxing.browser.model.BlockReason
 import com.jianxing.browser.model.DownloadEntry
 import org.json.JSONObject
@@ -70,7 +74,7 @@ class MainActivity : AppCompatActivity() {
 
     data class BrowserTab(
         val id: String,
-        val webView: WebView,
+        var webView: WebView,
         var title: String = "新标签页",
         var url: String = "",
         var loading: Boolean = false,
@@ -159,6 +163,8 @@ class MainActivity : AppCompatActivity() {
         updateChrome()
         refreshSetupBadge()
         refreshDownloadsChrome()
+        applyBrowserZoom()
+        HistorySync.syncNow()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -295,6 +301,8 @@ class MainActivity : AppCompatActivity() {
                     startDownload(url, view?.settings?.userAgentString, null, null)
                     return true
                 }
+                val rules = JianXingApp.instance.rulesStore.load()
+                if (NavigationGuard.canLetNativeNavigate(url, rules)) return false
                 checkAndLoad(tab, url, fromUser = false)
                 return true
             }
@@ -307,6 +315,8 @@ class MainActivity : AppCompatActivity() {
                     startDownload(url, view?.settings?.userAgentString, null, null)
                     return true
                 }
+                val rules = JianXingApp.instance.rulesStore.load()
+                if (NavigationGuard.canLetNativeNavigate(url, rules)) return false
                 checkAndLoad(tab, url, fromUser = false)
                 return true
             }
@@ -335,6 +345,7 @@ class MainActivity : AppCompatActivity() {
                 if (!url.isNullOrBlank() && (url.startsWith("http://") || url.startsWith("https://"))) {
                     tab.url = url
                     JianXingApp.instance.historyStore.record(url, tab.title)
+                    HistorySync.schedule()
                     injectSitePasswordScript(tab)
                 }
                 if (tab.id == activeTabId) {
@@ -342,8 +353,75 @@ class MainActivity : AppCompatActivity() {
                     renderTabs()
                 }
             }
+
+            override fun onReceivedError(
+                view: WebView?,
+                request: WebResourceRequest?,
+                error: WebResourceError?
+            ) {
+                if (request?.isForMainFrame != true || error == null) return
+                val code = error.errorCode
+                if (
+                    code != WebViewClient.ERROR_FAILED &&
+                    code != WebViewClient.ERROR_UNKNOWN &&
+                    code != WebViewClient.ERROR_TIMEOUT
+                ) {
+                    return
+                }
+                CrashReporter.report(
+                    kind = "webview-fail",
+                    message = "${error.description} ($code)",
+                    url = request.url?.toString(),
+                    extra = mapOf("errorCode" to code)
+                )
+            }
+
+            override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
+                val tab = tabs.find { it.webView == view }
+                CrashReporter.report(
+                    kind = "webview-gone",
+                    level = "fatal",
+                    message = "webview renderer gone didCrash=${detail?.didCrash() == true}",
+                    url = tab?.url,
+                    extra = mapOf(
+                        "didCrash" to (detail?.didCrash() == true),
+                        "priority" to (detail?.rendererPriorityAtExit() ?: -1)
+                    )
+                )
+                if (tab != null) replaceCrashedWebView(tab)
+                return true
+            }
         }
         return web
+    }
+
+    private fun replaceCrashedWebView(tab: BrowserTab) {
+        val url = tab.url
+        val wasActive = tab.id == activeTabId
+        try {
+            binding.webHost.removeView(tab.webView)
+            tab.webView.destroy()
+        } catch (_: Exception) {
+        }
+        tab.webView = createWebView()
+        binding.webHost.addView(
+            tab.webView,
+            android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        )
+        tab.webView.isVisible = wasActive
+        tab.loading = false
+        if (url.startsWith("http://") || url.startsWith("https://")) {
+            checkAndLoad(tab, url, fromUser = false)
+        } else {
+            openHomepage(tab)
+        }
+        if (wasActive) {
+            updateChrome()
+            renderTabs()
+        }
     }
 
     private fun navigateFromBar() {
@@ -584,6 +662,7 @@ class MainActivity : AppCompatActivity() {
             chip.setOnClickListener { activateTab(tab.id) }
             binding.tabsBar.addView(chip)
         }
+        applyChromeZoom()
     }
 
     private fun refreshBookmarksBar() {
@@ -624,6 +703,7 @@ class MainActivity : AppCompatActivity() {
             bar.addView(chip, lp)
         }
         applyBookmarksBarVisibility()
+        applyChromeZoom()
     }
 
     private fun showFolderPopup(anchor: View, folder: BookmarkNode) {
@@ -738,7 +818,8 @@ class MainActivity : AppCompatActivity() {
         )
         addItem(MENU_ABOUT, getString(R.string.menu_about))
 
-        val width = (288 * resources.displayMetrics.density).toInt()
+        ViewZoom.apply(content, zoom)
+        val width = (288 * resources.displayMetrics.density * zoom / 100f).toInt()
         val maxH = (resources.displayMetrics.heightPixels * 0.72f).toInt()
         content.measure(
             View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
@@ -844,12 +925,26 @@ class MainActivity : AppCompatActivity() {
         val store = JianXingApp.instance.settingsStore
         val next = if (reset) 100 else store.getTextZoom() + delta
         store.setTextZoom(next)
-        applyZoom(activeTab())
+        applyBrowserZoom()
         toast("缩放 ${store.getTextZoom()}%")
     }
 
+    private fun currentZoomPercent(): Int =
+        JianXingApp.instance.settingsStore.getTextZoom()
+
+    private fun applyChromeZoom() {
+        if (!::binding.isInitialized) return
+        ViewZoom.apply(binding.root, currentZoomPercent())
+    }
+
+    private fun applyBrowserZoom() {
+        val zoom = currentZoomPercent()
+        tabs.forEach { it.webView.settings.textZoom = zoom }
+        applyChromeZoom()
+    }
+
     private fun applyZoom(tab: BrowserTab?) {
-        tab?.webView?.settings?.textZoom = JianXingApp.instance.settingsStore.getTextZoom()
+        tab?.webView?.settings?.textZoom = currentZoomPercent()
     }
 
     private fun printPage() {
@@ -1321,8 +1416,18 @@ class MainActivity : AppCompatActivity() {
                   var t=String(el.type||'text').toLowerCase();
                   return visible(el)&&t!=='password'&&t!=='hidden'&&t!=='submit'&&t!=='button'&&t!=='checkbox'&&t!=='radio';
                 });
-                var user=inputs[0]||null;
+                var user=null;
+                for(var i=0;i<inputs.length;i++){
+                  var key=(inputs[i].name+' '+inputs[i].id+' '+inputs[i].autocomplete+' '+inputs[i].placeholder).toLowerCase();
+                  var t=String(inputs[i].type||'text').toLowerCase();
+                  if(t==='email'||t==='tel'||/user|email|login|account|phone|mobile|name/.test(key)){ user=inputs[i]; break; }
+                }
+                if(!user&&inputs[0]) user=inputs[0];
+                var active=document.activeElement;
+                if(user===active||pwd===active) return;
                 if(user&&creds.username&&!user.value) setVal(user,creds.username);
+                var typedUser=user?String(user.value||'').trim():'';
+                if(typedUser&&typedUser!==String(creds.username||'').trim()) return;
                 if(pwd&&!pwd.value) setVal(pwd,creds.password);
               }
               try {

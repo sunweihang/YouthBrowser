@@ -1,4 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import { installRendererCrashHooks } from './crash-hook';
+
+installRendererCrashHooks('parent');
 
 contextBridge.exposeInMainWorld('youthParent', {
   getMeta: () => ipcRenderer.invoke('parent:getMeta'),
@@ -41,5 +44,10 @@ contextBridge.exposeInMainWorld('youthParent', {
     const listener = (_: unknown, meta: unknown) => cb(meta);
     ipcRenderer.on('parent:meta', listener);
     return () => ipcRenderer.removeListener('parent:meta', listener);
+  },
+  onHistoryChanged: (cb) => {
+    const listener = () => cb();
+    ipcRenderer.on('history:changed', listener);
+    return () => ipcRenderer.removeListener('history:changed', listener);
   },
 });

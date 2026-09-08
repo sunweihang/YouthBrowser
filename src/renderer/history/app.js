@@ -3,6 +3,8 @@ const api = window.youthHistory;
 const listEl = document.getElementById('list');
 const emptyEl = document.getElementById('empty');
 const searchInput = document.getElementById('searchInput');
+let rendering = false;
+let opening = false;
 
 function pad(n) {
   return String(n).padStart(2, '0');
@@ -29,51 +31,78 @@ function dayLabel(ts) {
   return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
 }
 
+async function openEntry(id) {
+  if (opening || !id) return;
+  opening = true;
+  try {
+    await api.open(id);
+  } catch {
+    opening = false;
+  }
+}
+
 async function render() {
-  const query = searchInput.value.trim();
-  const res = await api.list(query);
-  const entries = (res && res.entries) || [];
-  listEl.innerHTML = '';
-  emptyEl.classList.toggle('hidden', entries.length > 0);
-  let lastDay = '';
-  for (const item of entries) {
-    const day = dayKey(item.visitedAt);
-    if (day !== lastDay) {
-      lastDay = day;
-      const label = document.createElement('div');
-      label.className = 'day-label';
-      label.textContent = dayLabel(item.visitedAt);
-      listEl.appendChild(label);
+  if (!api || rendering) return;
+  rendering = true;
+  try {
+    const query = searchInput.value.trim();
+    const res = await api.list(query);
+    const entries = (res && res.entries) || [];
+    listEl.innerHTML = '';
+    emptyEl.classList.toggle('hidden', entries.length > 0);
+    let lastDay = '';
+    for (const item of entries) {
+      const day = dayKey(item.visitedAt);
+      if (day !== lastDay) {
+        lastDay = day;
+        const label = document.createElement('div');
+        label.className = 'day-label';
+        label.textContent = dayLabel(item.visitedAt);
+        listEl.appendChild(label);
+      }
+      const row = document.createElement('div');
+      row.className = 'row';
+      row.title = item.url;
+      row.setAttribute('role', 'button');
+      row.tabIndex = 0;
+
+      const time = document.createElement('div');
+      time.className = 'row-time';
+      time.textContent = formatTime(item.visitedAt);
+
+      const main = document.createElement('div');
+      main.className = 'row-main';
+      const title = document.createElement('div');
+      title.className = 'row-title';
+      title.textContent = item.title || item.host || item.url;
+      const host = document.createElement('div');
+      host.className = 'row-url';
+      host.textContent = item.host || '';
+      main.appendChild(title);
+      main.appendChild(host);
+
+      row.appendChild(time);
+      row.appendChild(main);
+      const open = () => {
+        void openEntry(item.id);
+      };
+      row.addEventListener('click', open);
+      row.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          open();
+        }
+      });
+      listEl.appendChild(row);
     }
-    const row = document.createElement('div');
-    row.className = 'row';
-    row.title = item.url;
-
-    const time = document.createElement('div');
-    time.className = 'row-time';
-    time.textContent = formatTime(item.visitedAt);
-
-    const main = document.createElement('div');
-    main.className = 'row-main';
-    const title = document.createElement('div');
-    title.className = 'row-title';
-    title.textContent = item.title || item.host || item.url;
-    const host = document.createElement('div');
-    host.className = 'row-url';
-    host.textContent = item.host || '';
-    main.appendChild(title);
-    main.appendChild(host);
-
-    row.appendChild(time);
-    row.appendChild(main);
-    row.addEventListener('click', () => api.open(item.id));
-    listEl.appendChild(row);
+  } finally {
+    rendering = false;
   }
 }
 
 searchInput.addEventListener('input', () => {
-  render();
+  void render();
 });
 
-api.onChanged(() => render());
-render();
+if (api && api.onChanged) api.onChanged(() => void render());
+void render();

@@ -91,7 +91,7 @@
     <string name="menu_save_page">保存页面…</string>
     <string name="menu_find">在页面中查找</string>
     <string name="menu_print">打印…</string>
-    <string name="menu_zoom">缩放</string>
+    <string name="menu_zoom">浏览器缩放</string>
     <string name="menu_zoom_in">放大</string>
     <string name="menu_zoom_out">缩小</string>
     <string name="menu_zoom_reset">实际大小</string>

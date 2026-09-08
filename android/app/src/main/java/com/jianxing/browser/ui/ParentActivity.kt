@@ -21,6 +21,7 @@ import com.jianxing.browser.model.BiliConstants
 import com.jianxing.browser.model.SiteGroup
 import com.jianxing.browser.model.HistoryEntry
 import com.jianxing.browser.model.WatchRequest
+import com.jianxing.browser.sync.HistorySync
 import com.jianxing.browser.sync.SyncClient
 import java.util.concurrent.Executors
 
@@ -194,6 +195,7 @@ class ParentActivity : AppCompatActivity() {
                 if (result.ok) {
                     refreshGateAccountUi()
                     toast(if (register) "注册成功" else "登录成功")
+                    HistorySync.syncNow()
                 } else {
                     binding.gateAccountError.text = result.error ?: "失败"
                 }
@@ -239,6 +241,7 @@ class ParentActivity : AppCompatActivity() {
                 binding.parentHistoryOk.text = "已删除"
                 refreshParentHistory()
                 refreshOverview()
+                HistorySync.syncNow()
             }
         )
         binding.parentHistoryList.adapter = historyAdapter
@@ -253,6 +256,7 @@ class ParentActivity : AppCompatActivity() {
                     binding.parentHistoryOk.text = "已清空历史记录"
                     refreshParentHistory()
                     refreshOverview()
+                    HistorySync.syncNow()
                 }
                 .show()
         }
@@ -393,7 +397,15 @@ class ParentActivity : AppCompatActivity() {
             R.id.chipOverview -> refreshOverview()
             R.id.chipGroups -> refreshGroups()
             R.id.chipRequests -> refreshRequests()
-            R.id.chipHistory -> refreshParentHistory()
+            R.id.chipHistory -> {
+                refreshParentHistory()
+                HistorySync.syncNow { _, changed ->
+                    if (changed) {
+                        refreshParentHistory()
+                        refreshOverview()
+                    }
+                }
+            }
             R.id.chipSync -> updateSyncStatus()
         }
     }
@@ -441,7 +453,13 @@ class ParentActivity : AppCompatActivity() {
                     "账号：未登录"
                 }
             )
-            appendLine("浏览记录：${app.historyStore.count()} 条")
+            appendLine(
+                if (session != null) {
+                    "浏览记录：自动同步 · ${app.historyStore.count()} 条"
+                } else {
+                    "浏览记录：${app.historyStore.count()} 条（登录后自动同步）"
+                }
+            )
             append("收藏夹 revision：${app.bookmarksStore.getRevision()}")
         }
     }
@@ -570,6 +588,10 @@ class ParentActivity : AppCompatActivity() {
             runOnUiThread {
                 if (result.ok) {
                     toast(if (register) "注册成功" else "登录成功")
+                    HistorySync.syncNow { _, _ ->
+                        refreshOverview()
+                        refreshParentHistory()
+                    }
                 } else {
                     binding.syncStatus.text = result.error
                 }

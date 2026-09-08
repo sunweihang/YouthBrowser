@@ -1,6 +1,7 @@
 package com.jianxing.browser
 
 import android.app.Application
+import com.jianxing.browser.crash.CrashReporter
 import com.jianxing.browser.data.AccountStore
 import com.jianxing.browser.data.BookmarksStore
 import com.jianxing.browser.data.DownloadsStore
@@ -31,6 +32,7 @@ class JianXingApp : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        CrashReporter.init(this)
         rulesStore = RulesStore(this)
         watchRequestsStore = WatchRequestsStore(this)
         accountStore = AccountStore(this)

@@ -1,4 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import { installRendererCrashHooks } from './crash-hook';
+
+installRendererCrashHooks('history');
 
 contextBridge.exposeInMainWorld('youthHistory', {
   list: (query?: string) => ipcRenderer.invoke('history:list', query),

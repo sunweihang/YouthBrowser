@@ -1,4 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import { installRendererCrashHooks } from './crash-hook';
+
+installRendererCrashHooks('browser');
 
 contextBridge.exposeInMainWorld('youthBrowser', {
   getState: () => ipcRenderer.invoke('shell:getState'),

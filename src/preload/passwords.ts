@@ -1,4 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import { installRendererCrashHooks } from './crash-hook';
+
+installRendererCrashHooks('passwords');
 
 contextBridge.exposeInMainWorld('youthPasswords', {
   list: () => ipcRenderer.invoke('sitePassword:list'),

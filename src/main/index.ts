@@ -22,11 +22,13 @@ import { groupsPayloadEqual, SyncClient } from './sync-client';
 import { startAutoUpdater, registerUpdateIpc } from './auto-update';
 import {
   buildBlockUrl,
+  canLetNativeNavigate,
   canNavigate,
   hostAllowed,
   isDownloadAllowed,
 } from './navigation-guard';
 import { HistoryStore } from './history-store';
+import { createHistorySync } from './history-sync';
 import { DownloadsStore, type DownloadEntry } from './downloads-store';
 import {
   DownloadsManager,
@@ -39,6 +41,13 @@ import {
   extractLaunchUrl,
   registerAsDefaultBrowser,
 } from './default-browser';
+import {
+  attachWebContentsDiagnostics,
+  initErrorReporter,
+  installProcessHooks,
+  reportCrash,
+  sanitizeRendererReport,
+} from './error-reporter';
 
 const TAB_BAR_HEIGHT = 40;
 const TITLE_MENU_HEIGHT = 32;
@@ -54,8 +63,22 @@ function usesInWindowTitleMenu(): boolean {
 let chromeExtraHeight = 0;
 let bookmarksBarVisible = true;
 let homepage = '';
+/** Firefox-style browser zoom: scales chrome UI and page content together. */
+let browserZoomFactor = 1;
+let applyingBrowserZoom = false;
 
-function chromeHeight(): number {
+function clampZoomFactor(factor: number): number {
+  return Math.max(0.5, Math.min(3, Math.round(factor * 100) / 100));
+}
+
+function titleBarOverlayHeight(): number {
+  return Math.max(
+    TITLE_MENU_HEIGHT,
+    Math.round(TITLE_MENU_HEIGHT * browserZoomFactor)
+  );
+}
+
+function chromeCssHeight(): number {
   return (
     (usesInWindowTitleMenu() ? TITLE_MENU_HEIGHT : 0) +
     TAB_BAR_HEIGHT +
@@ -63,6 +86,17 @@ function chromeHeight(): number {
     (bookmarksBarVisible ? BOOKMARKS_BAR_HEIGHT : 0) +
     chromeExtraHeight
   );
+}
+
+function chromeHeight(): number {
+  return Math.round(chromeCssHeight() * browserZoomFactor);
+}
+
+function toChromeDip(x: number, y: number): { x: number; y: number } {
+  return {
+    x: Math.round(Number(x) * browserZoomFactor),
+    y: Math.round(Number(y) * browserZoomFactor),
+  };
 }
 
 function chromePrefsPath(): string {
@@ -75,8 +109,15 @@ function loadChromePrefs(): void {
     const raw = JSON.parse(readFileSync(chromePrefsPath(), 'utf8')) as {
       bookmarksBarVisible?: boolean;
       homepage?: string;
+      browserZoomFactor?: number;
     };
     bookmarksBarVisible = raw.bookmarksBarVisible !== false;
+    if (
+      typeof raw.browserZoomFactor === 'number' &&
+      Number.isFinite(raw.browserZoomFactor)
+    ) {
+      browserZoomFactor = clampZoomFactor(raw.browserZoomFactor);
+    }
     if (Object.prototype.hasOwnProperty.call(raw, 'homepage')) {
       hasHomepageKey = true;
       const parsed = normalizeHomepage(String(raw.homepage || ''));
@@ -97,7 +138,7 @@ function saveChromePrefs(): void {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(
     path,
-    JSON.stringify({ bookmarksBarVisible, homepage }, null, 2),
+    JSON.stringify({ bookmarksBarVisible, homepage, browserZoomFactor }, null, 2),
     'utf8'
   );
 }
@@ -155,6 +196,7 @@ let downloadsStore: DownloadsStore;
 let downloadsManager: DownloadsManager;
 let sitePasswordsStore: SitePasswordsStore;
 let syncClient: SyncClient;
+let historySync: ReturnType<typeof createHistorySync> | undefined;
 let tabs: TabState[] = [];
 let activeTabId: string | null = null;
 let parentUnlocked = false;
@@ -167,6 +209,8 @@ if (process.env.JIANXING_USER_DATA) {
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 if (!gotSingleInstanceLock) {
   app.quit();
+} else {
+  installProcessHooks();
 }
 
 app.on('second-instance', (_event, argv) => {
@@ -220,11 +264,17 @@ function notifyBookmarks(): void {
 }
 
 function notifyHistory(): void {
-  if (historyWindow && !historyWindow.isDestroyed()) {
-    historyWindow.webContents.send('history:changed', {
-      entries: historyStore.list(),
-      count: historyStore.count(),
-    });
+  const payload = {
+    entries: historyStore.list(),
+    count: historyStore.count(),
+  };
+  for (const win of [historyWindow, parentWindow]) {
+    if (!win || win.isDestroyed()) continue;
+    try {
+      win.webContents.send('history:changed', payload);
+    } catch {
+      // Window can tear down between the check and send.
+    }
   }
 }
 
@@ -253,6 +303,7 @@ function recordTabVisit(tab: TabState, url?: string): void {
   if (!isHttpUrl(href)) return;
   historyStore.record(href, tab.title || href);
   notifyHistory();
+  historySync?.schedule();
 }
 
 function authorizeHistoryDelete(password?: string): { ok: boolean; error?: string } {
@@ -268,8 +319,21 @@ function sendShellCommand(action: string, payload?: unknown): void {
   notifyShell('shell:command', { action, payload });
 }
 
+function isLiveWebContents(
+  wc: Electron.WebContents | null | undefined
+): wc is Electron.WebContents {
+  return Boolean(wc && !wc.isDestroyed());
+}
+
 function notifyShell(channel: string, payload: unknown): void {
-  mainWindow?.webContents.send(channel, payload);
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const wc = mainWindow.webContents;
+  if (!isLiveWebContents(wc)) return;
+  try {
+    wc.send(channel, payload);
+  } catch {
+    // Window can finish tearing down between the checks and send.
+  }
 }
 
 function isHttpUrl(url: string): boolean {
@@ -308,7 +372,7 @@ function tabSnapshot() {
     homepage: getHomepage(),
     bookmarksBarVisible,
     customTitleMenu: usesInWindowTitleMenu(),
-    zoomFactor: active ? Number(active.view.webContents.getZoomFactor() || 1) : 1,
+    zoomFactor: currentZoomFactor(),
   };
 }
 
@@ -323,6 +387,7 @@ function layoutViews(): void {
     height: Math.max(0, Math.round(height - top)),
   };
   for (const tab of tabs) {
+    if (!isLiveWebContents(tab.view.webContents)) continue;
     // Auto-resize + setBounds together over-sizes the view on Windows DPI,
     // so pages that center with max-width appear shifted.
     tab.view.setAutoResize({ width: false, height: false });
@@ -367,17 +432,45 @@ function refreshAppMenuIfNeeded(): void {
 
 function updateNavState(tab: TabState): void {
   const wc = tab.view.webContents;
-  tab.canGoBack = wc.canGoBack();
-  tab.canGoForward = wc.canGoForward();
-  tab.url = wc.getURL();
-  tab.title = wc.getTitle() || tab.title;
+  if (!isLiveWebContents(wc)) return;
+  try {
+    tab.canGoBack = wc.canGoBack();
+    tab.canGoForward = wc.canGoForward();
+    tab.url = wc.getURL();
+    tab.title = wc.getTitle() || tab.title;
+  } catch {
+    return;
+  }
   if (tab.id === activeTabId) {
     notifyShell('shell:state', tabSnapshot());
     refreshAppMenuIfNeeded();
   }
 }
 
+const guardNavigating = new WeakSet<Electron.WebContents>();
+
+async function loadTabUrl(
+  wc: Electron.WebContents,
+  url: string
+): Promise<void> {
+  if (!isLiveWebContents(wc)) return;
+  try {
+    if (wc.isLoading()) wc.stop();
+  } catch {
+    /* ignore */
+  }
+  if (!isLiveWebContents(wc)) return;
+  guardNavigating.add(wc);
+  try {
+    await wc.loadURL(url);
+  } finally {
+    guardNavigating.delete(wc);
+  }
+}
+
 async function guardedLoad(tab: TabState, targetUrl: string): Promise<void> {
+  const wc = tab.view.webContents;
+  if (!isLiveWebContents(wc)) return;
   tab.loading = true;
   notifyShell('shell:state', tabSnapshot());
 
@@ -386,7 +479,7 @@ async function guardedLoad(tab: TabState, targetUrl: string): Promise<void> {
     targetUrl.startsWith('file:') &&
     (targetUrl.includes('/block/') || targetUrl.includes('/blank'))
   ) {
-    await tab.view.webContents.loadURL(targetUrl);
+    await loadTabUrl(wc, targetUrl);
     tab.loading = false;
     updateNavState(tab);
     return;
@@ -395,7 +488,7 @@ async function guardedLoad(tab: TabState, targetUrl: string): Promise<void> {
   // Parent-approved watch request: allow same host+path again
   if (watchRequestsStore?.isApprovedUrl(targetUrl)) {
     try {
-      await tab.view.webContents.loadURL(targetUrl);
+      await loadTabUrl(wc, targetUrl);
     } catch {
       const blocked = buildBlockUrl(
         blockPageUrl(),
@@ -403,7 +496,7 @@ async function guardedLoad(tab: TabState, targetUrl: string): Promise<void> {
         'invalid_url',
         '页面加载失败'
       );
-      await tab.view.webContents.loadURL(blocked);
+      await loadTabUrl(wc, blocked);
     }
     tab.loading = false;
     updateNavState(tab);
@@ -411,6 +504,7 @@ async function guardedLoad(tab: TabState, targetUrl: string): Promise<void> {
   }
 
   const result = await canNavigate(targetUrl, rulesStore.getRaw());
+  if (!isLiveWebContents(wc)) return;
   if (!result.allowed) {
     const blocked = buildBlockUrl(
       blockPageUrl(),
@@ -419,7 +513,7 @@ async function guardedLoad(tab: TabState, targetUrl: string): Promise<void> {
       result.message || '访问被拦截',
       result.meta
     );
-    await tab.view.webContents.loadURL(blocked);
+    await loadTabUrl(wc, blocked);
     tab.url = targetUrl;
     tab.title = '已拦截';
     tab.loading = false;
@@ -428,7 +522,7 @@ async function guardedLoad(tab: TabState, targetUrl: string): Promise<void> {
   }
 
   try {
-    await tab.view.webContents.loadURL(result.finalUrl || targetUrl);
+    await loadTabUrl(wc, result.finalUrl || targetUrl);
   } catch {
     const blocked = buildBlockUrl(
       blockPageUrl(),
@@ -436,7 +530,7 @@ async function guardedLoad(tab: TabState, targetUrl: string): Promise<void> {
       'invalid_url',
       '页面加载失败'
     );
-    await tab.view.webContents.loadURL(blocked);
+    await loadTabUrl(wc, blocked);
   }
   tab.loading = false;
   updateNavState(tab);
@@ -458,20 +552,26 @@ function attachGuards(tab: TabState): void {
   });
 
   wc.on('will-navigate', (event, url) => {
+    if (guardNavigating.has(wc)) return;
     if (url.startsWith('file:') && url.includes('/block/')) return;
-    event.preventDefault();
     if (
       looksLikeDownloadUrl(url) &&
       isDownloadAllowed(url, rulesStore.getRaw())
     ) {
+      event.preventDefault();
       downloadsManager.startFromUrl(url, wc.getURL() || '');
       return;
     }
+    // Allowed navigations must proceed natively. preventDefault + loadURL
+    // drops POST bodies, so site logins reload with no error and empty fields.
+    if (canLetNativeNavigate(url, rulesStore.getRaw())) return;
+    event.preventDefault();
     void guardedLoad(tab, url);
   });
 
   // Only cancel denied redirects. preventDefault + loadURL on allowed
-  // redirects is a known Electron/Chromium crash trigger.
+  // redirects is a known Electron/Chromium crash trigger. Even denied
+  // redirects must not loadURL inside this handler — defer it.
   wc.on('will-redirect', (event, url) => {
     if (url.startsWith('file:')) return;
     if (!rulesStore.isFilteringEnabled()) return;
@@ -490,44 +590,53 @@ function attachGuards(tab: TabState): void {
     }
     if (allowed) return;
     event.preventDefault();
-    void wc.loadURL(
-      buildBlockUrl(
-        blockPageUrl(),
-        url,
-        'host_denied',
-        '重定向目标未授权'
-      )
+    const blocked = buildBlockUrl(
+      blockPageUrl(),
+      url,
+      'host_denied',
+      '重定向目标未授权'
     );
-    updateNavState(tab);
+    setImmediate(() => {
+      if (!isLiveWebContents(wc)) return;
+      void loadTabUrl(wc, blocked);
+      updateNavState(tab);
+    });
   });
 
   wc.on('page-title-updated', (_e, title) => {
+    if (!isLiveWebContents(wc)) return;
     tab.title = title;
     updateNavState(tab);
     if (isHttpUrl(tab.url)) {
       historyStore.updateLatestTitle(tab.url, title);
       notifyHistory();
+      historySync?.schedule();
     }
   });
 
   wc.on('did-navigate', (_e, url) => {
+    if (!isLiveWebContents(wc)) return;
     updateNavState(tab);
     recordTabVisit(tab, url);
   });
   wc.on('did-navigate-in-page', (_e, url) => {
+    if (!isLiveWebContents(wc)) return;
     updateNavState(tab);
     recordTabVisit(tab, url);
   });
   wc.on('found-in-page', (_e, result) => {
+    if (!isLiveWebContents(wc)) return;
     if (tab.id === activeTabId) {
       notifyShell('shell:findResult', result);
     }
   });
   wc.on('did-start-loading', () => {
+    if (!isLiveWebContents(wc)) return;
     tab.loading = true;
     updateNavState(tab);
   });
   wc.on('did-stop-loading', () => {
+    if (!isLiveWebContents(wc)) return;
     tab.loading = false;
     updateNavState(tab);
   });
@@ -543,6 +652,8 @@ function attachGuards(tab: TabState): void {
       event.preventDefault();
     }
   });
+  applyZoomToWebContents(wc);
+  wireZoomEvents(wc);
 }
 
 function createTab(initialUrl?: string): TabState {
@@ -632,6 +743,7 @@ function closeTab(id: string): void {
   const wc = tab.view.webContents as Electron.WebContents & {
     destroy?: () => void;
   };
+  wc.removeAllListeners();
   if (typeof wc.destroy === 'function') {
     wc.destroy();
   } else {
@@ -721,10 +833,11 @@ function createMainWindow(): void {
     winOpts.titleBarOverlay = {
       color: CHROME_BG,
       symbolColor: CHROME_FG,
-      height: TITLE_MENU_HEIGHT,
+      height: titleBarOverlayHeight(),
     };
   }
   mainWindow = new BrowserWindow(winOpts);
+  attachWindowZoom(mainWindow);
 
   applyMenuBarVisibility();
   void mainWindow.loadURL(rendererFile('browser', 'index.html'));
@@ -741,6 +854,21 @@ function createMainWindow(): void {
   ] as const) {
     mainWindow.on(ev, () => layoutViews());
   }
+  mainWindow.on('close', () => {
+    for (const tab of tabs) {
+      const wc = tab.view.webContents as Electron.WebContents & {
+        destroy?: () => void;
+      };
+      try {
+        wc.removeAllListeners();
+        if (typeof wc.destroy === 'function') wc.destroy();
+      } catch {
+        /* view may already be gone */
+      }
+    }
+    tabs = [];
+    activeTabId = null;
+  });
   mainWindow.on('closed', () => {
     mainWindow = null;
     tabs = [];
@@ -748,6 +876,7 @@ function createMainWindow(): void {
   });
 
   mainWindow.webContents.on('did-finish-load', () => {
+    applyZoomToWebContents(mainWindow?.webContents);
     if (tabs.length === 0) {
       if (pendingLaunchUrl) {
         const url = pendingLaunchUrl;
@@ -792,6 +921,7 @@ function openParentWindow(forceSetup = false): void {
     },
   });
   parentWindow.setMenuBarVisibility(false);
+  attachWindowZoom(parentWindow);
   void parentWindow.loadURL(rendererFile('parent', 'index.html'));
   parentWindow.on('closed', () => {
     parentWindow = null;
@@ -805,7 +935,7 @@ function applyTitleBarOverlay(): void {
     mainWindow.setTitleBarOverlay({
       color: CHROME_BG,
       symbolColor: CHROME_FG,
-      height: TITLE_MENU_HEIGHT,
+      height: titleBarOverlayHeight(),
     });
   } catch {
     /* overlay not available */
@@ -827,34 +957,86 @@ function applyMenuBarVisibility(): void {
   layoutViews();
 }
 
+function applyZoomToWebContents(
+  wc: Electron.WebContents | null | undefined
+): void {
+  if (!isLiveWebContents(wc)) return;
+  wc.setZoomFactor(browserZoomFactor);
+}
+
+function appWindows(): BrowserWindow[] {
+  return [
+    mainWindow,
+    parentWindow,
+    bookmarksWindow,
+    historyWindow,
+    downloadsWindow,
+    updateWindow,
+    passwordsWindow,
+    aboutWindow,
+  ].filter((w): w is BrowserWindow => Boolean(w && !w.isDestroyed()));
+}
+
+function applyBrowserZoom(): void {
+  applyingBrowserZoom = true;
+  try {
+    for (const win of appWindows()) {
+      applyZoomToWebContents(win.webContents);
+    }
+    for (const tab of tabs) {
+      applyZoomToWebContents(tab.view.webContents);
+    }
+    applyTitleBarOverlay();
+    layoutViews();
+  } finally {
+    applyingBrowserZoom = false;
+  }
+}
+
+function wireZoomEvents(wc: Electron.WebContents): void {
+  wc.on('did-finish-load', () => applyZoomToWebContents(wc));
+  wc.on('zoom-changed', (_e, direction) => {
+    if (applyingBrowserZoom) return;
+    zoomBy(direction === 'in' ? 0.1 : -0.1);
+  });
+}
+
+function attachWindowZoom(win: BrowserWindow): void {
+  applyZoomToWebContents(win.webContents);
+  wireZoomEvents(win.webContents);
+}
+
 function currentZoomFactor(): number {
-  const tab = activeTab();
-  return tab ? Number(tab.view.webContents.getZoomFactor() || 1) : 1;
+  return browserZoomFactor;
 }
 
 function setZoomFactor(factor: number): void {
-  const tab = activeTab();
-  if (!tab) return;
-  const next = Math.max(0.5, Math.min(3, Math.round(factor * 100) / 100));
-  tab.view.webContents.setZoomFactor(next);
+  const next = clampZoomFactor(factor);
+  if (next !== browserZoomFactor) {
+    browserZoomFactor = next;
+    saveChromePrefs();
+  }
+  applyBrowserZoom();
   notifyShell('shell:state', tabSnapshot());
   refreshAppMenu();
 }
 
 function zoomBy(delta: number): void {
+  if (applyingBrowserZoom) return;
   setZoomFactor(currentZoomFactor() + delta);
 }
 
 function findInActiveTab(text: string, forward = true, findNext = true): void {
   const tab = activeTab();
-  if (!tab) return;
+  const wc = tab?.view.webContents;
+  if (!tab || !isLiveWebContents(wc)) return;
   const query = String(text || '');
   if (!query) {
-    tab.view.webContents.stopFindInPage('clearSelection');
+    wc.stopFindInPage('clearSelection');
     notifyShell('shell:findResult', null);
     return;
   }
-  tab.view.webContents.findInPage(query, { forward, findNext });
+  wc.findInPage(query, { forward, findNext });
 }
 
 function openUpdateWindow(): void {
@@ -878,6 +1060,7 @@ function openUpdateWindow(): void {
     },
   });
   updateWindow.setMenuBarVisibility(false);
+  attachWindowZoom(updateWindow);
   void updateWindow.loadURL(rendererFile('update', 'index.html'));
   updateWindow.on('closed', () => {
     updateWindow = null;
@@ -925,30 +1108,46 @@ function openPasswordsWindow(): void {
     },
   });
   passwordsWindow.setMenuBarVisibility(false);
+  attachWindowZoom(passwordsWindow);
   void passwordsWindow.loadURL(rendererFile('passwords', 'index.html'));
   passwordsWindow.on('closed', () => {
     passwordsWindow = null;
   });
 }
 
+function closeHistoryWindow(): void {
+  if (!historyWindow || historyWindow.isDestroyed()) return;
+  try {
+    historyWindow.close();
+  } catch {
+    /* ignore */
+  }
+}
+
 function openHistoryWindow(): void {
   if (historyWindow && !historyWindow.isDestroyed()) {
     historyWindow.focus();
-    historyWindow.webContents.send('history:changed', {
-      entries: historyStore.list(),
-      count: historyStore.count(),
-    });
+    try {
+      historyWindow.webContents.send('history:changed', {
+        entries: historyStore.list(),
+        count: historyStore.count(),
+      });
+    } catch {
+      /* ignore */
+    }
     return;
   }
 
+  // Do not parent this to mainWindow. BrowserView + a child window is a
+  // known Chromium crash on Windows when the tab later navigates.
   historyWindow = new BrowserWindow({
     width: 860,
     height: 640,
     minWidth: 640,
     minHeight: 420,
-    parent: mainWindow ?? undefined,
-    modal: false,
     title: `${APP_NAME} · 历史记录`,
+    backgroundColor: CHROME_BG,
+    autoHideMenuBar: true,
     webPreferences: {
       preload: distPath('preload', 'history.js'),
       contextIsolation: true,
@@ -957,6 +1156,7 @@ function openHistoryWindow(): void {
     },
   });
   historyWindow.setMenuBarVisibility(false);
+  attachWindowZoom(historyWindow);
   void historyWindow.loadURL(rendererFile('history', 'index.html'));
   historyWindow.on('closed', () => {
     historyWindow = null;
@@ -989,6 +1189,7 @@ function openDownloadsWindow(): void {
     },
   });
   downloadsWindow.setMenuBarVisibility(false);
+  attachWindowZoom(downloadsWindow);
   void downloadsWindow.loadURL(rendererFile('downloads', 'index.html'));
   downloadsWindow.on('closed', () => {
     downloadsWindow = null;
@@ -1003,20 +1204,20 @@ function saveCurrentPage(): void {
 }
 
 function goBackActive(): void {
-  const tab = activeTab();
-  if (tab?.view.webContents.canGoBack()) tab.view.webContents.goBack();
+  const wc = activeTab()?.view.webContents;
+  if (isLiveWebContents(wc) && wc.canGoBack()) wc.goBack();
 }
 
 function goForwardActive(): void {
-  const tab = activeTab();
-  if (tab?.view.webContents.canGoForward()) tab.view.webContents.goForward();
+  const wc = activeTab()?.view.webContents;
+  if (isLiveWebContents(wc) && wc.canGoForward()) wc.goForward();
 }
 
 function reloadActiveTab(ignoreCache = false): void {
-  const tab = activeTab();
-  if (!tab) return;
-  if (ignoreCache) tab.view.webContents.reloadIgnoringCache();
-  else tab.view.webContents.reload();
+  const wc = activeTab()?.view.webContents;
+  if (!isLiveWebContents(wc)) return;
+  if (ignoreCache) wc.reloadIgnoringCache();
+  else wc.reload();
 }
 
 function historyNavMenuItems(): MenuItemConstructorOptions[] {
@@ -1111,8 +1312,7 @@ function popupNamedMenu(name: string, x: number, y: number): void {
   if (!submenu || !Array.isArray(submenu)) return;
   Menu.buildFromTemplate(submenu).popup({
     window: mainWindow,
-    x: Math.round(x),
-    y: Math.round(y),
+    ...toChromeDip(x, y),
   });
 }
 
@@ -1189,7 +1389,7 @@ function popupAppMenu(x: number, y: number): void {
       click: () => tab?.view.webContents.print({}),
     },
     {
-      label: `缩放（${zoom}%）`,
+      label: `浏览器缩放（${zoom}%）`,
       submenu: [
         { label: '放大', accelerator: 'CmdOrCtrl+=', click: () => zoomBy(0.1) },
         { label: '缩小', accelerator: 'CmdOrCtrl+-', click: () => zoomBy(-0.1) },
@@ -1238,8 +1438,7 @@ function popupAppMenu(x: number, y: number): void {
   ]);
   menu.popup({
     window: mainWindow,
-    x: Math.round(x),
-    y: Math.round(y),
+    ...toChromeDip(x, y),
   });
 }
 
@@ -1464,6 +1663,7 @@ function showAboutDialog(): void {
     },
   });
   aboutWindow.setMenuBarVisibility(false);
+  attachWindowZoom(aboutWindow);
   void aboutWindow.loadURL(rendererFile('about', 'index.html'));
   aboutWindow.on('closed', () => {
     aboutWindow = null;
@@ -1496,6 +1696,7 @@ function openBookmarksManager(): void {
     },
   });
   bookmarksWindow.setMenuBarVisibility(false);
+  attachWindowZoom(bookmarksWindow);
   void bookmarksWindow.loadURL(rendererFile('bookmarks', 'index.html'));
   bookmarksWindow.on('closed', () => {
     bookmarksWindow = null;
@@ -1539,8 +1740,7 @@ function popupBookmarkFolder(folderId: string, x: number, y: number): void {
   const menu = Menu.buildFromTemplate(buildBookmarkMenuTemplate(folderId));
   menu.popup({
     window: mainWindow,
-    x: Math.round(x),
-    y: Math.round(y),
+    ...toChromeDip(x, y),
   });
 }
 
@@ -1803,12 +2003,20 @@ function registerIpc(): void {
     return { ok: true, entries: historyStore.list(query), count: historyStore.count() };
   });
 
-  ipcMain.handle('history:open', async (_e, id: string) => {
-    const entry = historyStore.get(id);
+  ipcMain.handle('history:open', (_e, id: string) => {
+    const entry = historyStore.get(String(id || ''));
     if (!entry) return { ok: false, error: '记录不存在' };
-    const tab = activeTab();
-    if (tab) await guardedLoad(tab, entry.url);
-    else createTab(entry.url);
+    const url = entry.url;
+    // Reply first, then close the history window and navigate. Doing
+    // loadURL on the BrowserView while this child window is the IPC
+    // sender (and was parented to main) crashes Chromium on Windows.
+    setImmediate(() => {
+      closeHistoryWindow();
+      const tab = activeTab();
+      if (tab) void guardedLoad(tab, url);
+      else createTab(url);
+      focusMainWindow();
+    });
     return { ok: true };
   });
 
@@ -1823,7 +2031,10 @@ function registerIpc(): void {
     const auth = authorizeHistoryDelete(password);
     if (!auth.ok) return auth;
     const result = historyStore.remove(id);
-    if (result.ok) notifyHistory();
+    if (result.ok) {
+      notifyHistory();
+      void historySync?.syncNow();
+    }
     return result;
   });
 
@@ -1832,6 +2043,7 @@ function registerIpc(): void {
     if (!auth.ok) return auth;
     const result = historyStore.clear();
     notifyHistory();
+    void historySync?.syncNow();
     return result;
   });
 
@@ -2265,6 +2477,12 @@ function registerIpc(): void {
     };
   });
 
+  ipcMain.handle('error:report', (_e, raw: unknown) => {
+    const parsed = sanitizeRendererReport(raw);
+    if (parsed) reportCrash(parsed);
+    return { ok: true };
+  });
+
   ipcMain.handle('account:get', () => {
     return accountStore.getPublic();
   });
@@ -2326,11 +2544,13 @@ function registerIpc(): void {
       input: { username: string; password: string; serverUrl?: string }
     ) => {
       try {
-        return await syncClient.register(
+        const result = await syncClient.register(
           input.username,
           input.password,
           input.serverUrl
         );
+        if (result.ok) void historySync?.syncNow();
+        return result;
       } catch (e) {
         return {
           ok: false,
@@ -2347,11 +2567,13 @@ function registerIpc(): void {
       input: { username: string; password: string; serverUrl?: string }
     ) => {
       try {
-        return await syncClient.login(
+        const result = await syncClient.login(
           input.username,
           input.password,
           input.serverUrl
         );
+        if (result.ok) void historySync?.syncNow();
+        return result;
       } catch (e) {
         return {
           ok: false,
@@ -2446,9 +2668,52 @@ app.whenReady().then(() => {
   downloadsManager.attach(session.fromPartition('persist:youth'));
   sitePasswordsStore = new SitePasswordsStore();
   syncClient = new SyncClient(accountStore);
+  historySync = createHistorySync({
+    account: accountStore,
+    store: historyStore,
+    client: syncClient,
+    onChanged: () => notifyHistory(),
+  });
+  void historySync.syncNow();
+  initErrorReporter({
+    getServerUrl: () => accountStore.getServerUrl(),
+    getUsername: () => accountStore.getSession()?.username || '',
+    getToken: () => accountStore.getSession()?.token,
+  });
   loadChromePrefs();
   refreshAppMenu();
   registerIpc();
+
+  app.on('web-contents-created', (_e, wc) => {
+    attachWebContentsDiagnostics(wc, {
+      onRenderGone: (contents, details) => {
+        if (details.reason === 'clean-exit') return;
+        const tab = tabs.find((t) => t.view.webContents === contents);
+        if (!tab || !isHttpUrl(tab.url)) return;
+        setTimeout(() => {
+          if (isLiveWebContents(tab.view.webContents)) {
+            void guardedLoad(tab, tab.url);
+          }
+        }, 400);
+      },
+    });
+  });
+
+  app.on('child-process-gone', (_e, details) => {
+    if (details.reason === 'clean-exit') return;
+    reportCrash({
+      kind: 'child-gone',
+      level: details.type === 'GPU' ? 'fatal' : 'error',
+      message: `${details.type} ${details.reason} exit=${details.exitCode}`,
+      extra: {
+        type: details.type,
+        reason: details.reason,
+        exitCode: details.exitCode,
+        serviceName: details.serviceName,
+        name: details.name,
+      },
+    });
+  });
 
   // Block permission prompts that could be abused
   session.defaultSession.setPermissionRequestHandler((_wc, _perm, cb) => {
@@ -2466,6 +2731,10 @@ app.whenReady().then(() => {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
   });
+});
+
+app.on('before-quit', () => {
+  void historySync?.syncNow();
 });
 
 app.on('window-all-closed', () => {

@@ -1,4 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import { installRendererCrashHooks } from './crash-hook';
+
+installRendererCrashHooks('downloads');
 
 contextBridge.exposeInMainWorld('youthDownloads', {
   list: (query?: string) => ipcRenderer.invoke('downloads:list', query),

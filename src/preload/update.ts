@@ -1,4 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import { installRendererCrashHooks } from './crash-hook';
+
+installRendererCrashHooks('update');
 
 contextBridge.exposeInMainWorld('youthUpdate', {
   getStatus: () => ipcRenderer.invoke('update:getStatus'),
