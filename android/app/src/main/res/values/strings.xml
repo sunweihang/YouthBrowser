@@ -95,6 +95,8 @@
     <string name="menu_zoom_in">放大</string>
     <string name="menu_zoom_out">缩小</string>
     <string name="menu_zoom_reset">实际大小</string>
+    <string name="zoom_percent">%d%%</string>
+    <string name="zoom_reset_hint">单击可重置缩放</string>
     <string name="menu_fullscreen">全屏</string>
     <string name="menu_parent">家长设置</string>
     <string name="menu_update">检查更新</string>

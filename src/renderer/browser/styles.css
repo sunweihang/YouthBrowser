@@ -413,14 +413,27 @@ input,
 .url-form {
   flex: 1;
   min-width: 0;
-}
-
-#urlInput {
-  width: 100%;
+  display: flex;
+  align-items: center;
   height: 34px;
+  padding: 0 4px 0 0;
   border-radius: 999px;
   border: 1px solid var(--line);
   background: var(--bg);
+}
+
+.url-form:focus-within {
+  border-color: var(--accent);
+}
+
+#urlInput {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+  height: 32px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
   color: var(--text);
   padding: 0 14px;
   font-size: 13px;
@@ -428,7 +441,45 @@ input,
 }
 
 #urlInput:focus {
+  border: none;
+}
+
+.zoom-badge {
+  flex-shrink: 0;
+  height: 22px;
+  min-width: 44px;
+  margin-right: 4px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--tab-active);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 20px;
+  letter-spacing: 0.02em;
+}
+
+.zoom-badge:hover {
   border-color: var(--accent);
+  background: rgba(61, 139, 253, 0.22);
+}
+
+.zoom-badge.changed {
+  animation: zoom-pop 0.28s ease;
+}
+
+@keyframes zoom-pop {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.08);
+  }
+  100% {
+    transform: scale(1);
+  }
 }
 
 .bookmarks {

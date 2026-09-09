@@ -124,6 +124,7 @@ class MainActivity : AppCompatActivity() {
         }
         binding.downloadBarClose.setOnClickListener { closeDownloadBar() }
         binding.btnMenu.setOnClickListener { showAppMenu(it) }
+        binding.zoomBadge.setOnClickListener { changeZoom(0, reset = true) }
         binding.urlBar.setOnEditorActionListener { _, actionId, event ->
             if (actionId == EditorInfo.IME_ACTION_GO ||
                 (event != null && event.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_DOWN)
@@ -362,9 +363,12 @@ class MainActivity : AppCompatActivity() {
                 if (request?.isForMainFrame != true || error == null) return
                 val code = error.errorCode
                 if (
-                    code != WebViewClient.ERROR_FAILED &&
                     code != WebViewClient.ERROR_UNKNOWN &&
-                    code != WebViewClient.ERROR_TIMEOUT
+                    code != WebViewClient.ERROR_TIMEOUT &&
+                    code != WebViewClient.ERROR_CONNECT &&
+                    code != WebViewClient.ERROR_IO &&
+                    code != WebViewClient.ERROR_HOST_LOOKUP &&
+                    code != WebViewClient.ERROR_FAILED_SSL_HANDSHAKE
                 ) {
                     return
                 }
@@ -926,7 +930,6 @@ class MainActivity : AppCompatActivity() {
         val next = if (reset) 100 else store.getTextZoom() + delta
         store.setTextZoom(next)
         applyBrowserZoom()
-        toast("缩放 ${store.getTextZoom()}%")
     }
 
     private fun currentZoomPercent(): Int =
@@ -941,6 +944,16 @@ class MainActivity : AppCompatActivity() {
         val zoom = currentZoomPercent()
         tabs.forEach { it.webView.settings.textZoom = zoom }
         applyChromeZoom()
+        updateZoomBadge()
+    }
+
+    private fun updateZoomBadge() {
+        if (!::binding.isInitialized) return
+        val zoom = currentZoomPercent()
+        binding.zoomBadge.text = getString(R.string.zoom_percent, zoom)
+        binding.zoomBadge.isVisible = zoom != 100
+        binding.zoomBadge.contentDescription =
+            if (zoom != 100) getString(R.string.zoom_reset_hint) else null
     }
 
     private fun applyZoom(tab: BrowserTab?) {

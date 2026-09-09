@@ -87,24 +87,54 @@
             android:contentDescription="@string/reload_hint"
             android:tooltipText="@string/reload_hint" />
 
-        <EditText
-            android:id="@+id/urlBar"
+        <LinearLayout
+            android:id="@+id/urlForm"
             android:layout_width="0dp"
             android:layout_height="34dp"
             android:layout_weight="1"
             android:layout_marginStart="6dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
             android:background="@drawable/bg_url_pill"
-            android:paddingStart="14dp"
-            android:paddingEnd="14dp"
-            android:hint="@string/url_hint"
-            android:textColorHint="@color/jx_muted"
-            android:textColor="@color/jx_text"
-            android:textSize="13sp"
-            android:imeOptions="actionGo"
-            android:inputType="textUri"
-            android:maxLines="1"
-            android:singleLine="true"
-            android:importantForAutofill="no" />
+            android:paddingStart="0dp"
+            android:paddingEnd="4dp">
+
+            <EditText
+                android:id="@+id/urlBar"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:background="@null"
+                android:paddingStart="14dp"
+                android:paddingEnd="8dp"
+                android:hint="@string/url_hint"
+                android:textColorHint="@color/jx_muted"
+                android:textColor="@color/jx_text"
+                android:textSize="13sp"
+                android:imeOptions="actionGo"
+                android:inputType="textUri"
+                android:maxLines="1"
+                android:singleLine="true"
+                android:importantForAutofill="no" />
+
+            <TextView
+                android:id="@+id/zoomBadge"
+                android:layout_width="wrap_content"
+                android:layout_height="22dp"
+                android:minWidth="44dp"
+                android:paddingStart="8dp"
+                android:paddingEnd="8dp"
+                android:gravity="center"
+                android:textColor="@color/jx_text"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:background="@drawable/bg_zoom_badge"
+                android:visibility="gone"
+                android:clickable="true"
+                android:focusable="true"
+                android:tooltipText="@string/zoom_reset_hint"
+                android:contentDescription="@string/zoom_reset_hint" />
+        </LinearLayout>
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnStar"

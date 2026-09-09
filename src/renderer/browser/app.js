@@ -12,6 +12,7 @@ const bookmarksBar = document.getElementById('bookmarksBar');
 const bookmarksItems = document.getElementById('bookmarksItems');
 const navForm = document.getElementById('navForm');
 const menuBtn = document.getElementById('menuBtn');
+const zoomBadge = document.getElementById('zoomBadge');
 
 let lastActive = null;
 let lastState = null;
@@ -209,8 +210,31 @@ function render(state) {
   document.body.classList.toggle('custom-title-menu', Boolean(state.customTitleMenu));
   menuBtn.classList.toggle('needs-setup', Boolean(state.needsParentSetup));
   menuBtn.title = '打开菜单';
+  renderZoomBadge(state, zoomChanged);
   syncWindowControlsPad();
   if (zoomChanged) syncChromeExtra();
+}
+
+function zoomPercent(state) {
+  const factor = Number(state && state.zoomFactor);
+  if (!Number.isFinite(factor)) return 100;
+  return Math.round(factor * 100);
+}
+
+function renderZoomBadge(state, zoomChanged) {
+  if (!zoomBadge) return;
+  const pct = zoomPercent(state);
+  const label = `${pct}%`;
+  const visible = pct !== 100;
+  zoomBadge.textContent = label;
+  zoomBadge.classList.toggle('hidden', !visible);
+  zoomBadge.title = visible ? `缩放 ${label} — 单击可重置缩放` : '';
+  zoomBadge.setAttribute('aria-label', zoomBadge.title);
+  if (visible && zoomChanged) {
+    zoomBadge.classList.remove('changed');
+    void zoomBadge.offsetWidth;
+    zoomBadge.classList.add('changed');
+  }
 }
 
 urlInput.addEventListener('dragstart', (e) => {
@@ -242,6 +266,11 @@ forwardBtn.addEventListener('click', () => api.goForward());
 reloadBtn.addEventListener('click', (e) => api.reload(e.shiftKey));
 newTabBtn.addEventListener('click', () => api.newTab());
 bookmarkBtn.addEventListener('click', () => api.toggleBookmark());
+zoomBadge?.addEventListener('click', (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  api.zoomReset();
+});
 menuBtn.addEventListener('click', (e) => {
   e.stopPropagation();
   const rect = menuBtn.getBoundingClientRect();

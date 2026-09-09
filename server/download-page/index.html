@@ -172,12 +172,12 @@
     }
 
     .download-wrap {
-      max-width: 720px; width: 100%; margin: 0 auto;
+      max-width: 960px; width: 100%; margin: 0 auto;
     }
     .download-grid {
-      display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; margin-bottom: 16px;
+      display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-bottom: 16px;
     }
-    @media (max-width: 640px) { .download-grid { grid-template-columns: 1fr; } }
+    @media (max-width: 860px) { .download-grid { grid-template-columns: 1fr; } }
     .latest {
       padding: 24px; border: 1px solid var(--border); border-radius: var(--radius);
       background: var(--surface); box-shadow: var(--shadow);
@@ -258,6 +258,7 @@
       </div>
       <div class="hero-cta">
         <a class="btn btn-primary" id="heroDownload" href="#download">下载 Windows 版</a>
+        <a class="btn btn-ghost" id="heroMac" href="#download">下载 macOS 版</a>
         <a class="btn btn-ghost" id="heroAndroid" href="#download">下载 Android 版</a>
       </div>
     </div>
@@ -385,7 +386,7 @@
   <section class="section" id="download">
     <div class="section-head">
       <h2>下载安装包</h2>
-      <p>Windows x64 与 Android。电脑装好后会自动检查更新；也可以在此页换历史版本。</p>
+      <p>Windows x64、macOS Apple Silicon 与 Android。电脑装好后会自动检查更新；也可以在此页换历史版本。</p>
     </div>
     <div class="download-wrap">
       <div class="download-grid">
@@ -396,6 +397,14 @@
             <div class="latest-meta" id="latestMeta"></div>
           </div>
           <a class="btn btn-primary" id="latestBtn" href="#">下载</a>
+        </div>
+        <div class="latest" id="macCard">
+          <div>
+            <div class="latest-label">macOS Apple Silicon</div>
+            <div class="latest-ver" id="macVersion">加载中…</div>
+            <div class="latest-meta" id="macMeta"></div>
+          </div>
+          <a class="btn btn-primary" id="macBtn" href="#">下载</a>
         </div>
         <div class="latest" id="androidCard">
           <div>
@@ -432,7 +441,7 @@
         </div>
         <div class="faq-item">
           <h4>支持哪些系统？</h4>
-          <p>提供 Windows x64 安装包和 Android APK。两端可用同一账号同步配置组和收藏夹。</p>
+          <p>提供 Windows x64、macOS Apple Silicon 安装包和 Android APK。各端可用同一账号同步配置组和收藏夹。</p>
         </div>
       </div>
     </section>
@@ -440,7 +449,7 @@
 
   <footer class="footer">
     <p><strong>简行浏览器 · SimplyGo</strong></p>
-    <p>青少年专用 · Windows x64 · Android</p>
+    <p>青少年专用 · Windows x64 · macOS · Android</p>
   </footer>
 
   <script>
@@ -471,6 +480,10 @@
       const latestMeta = document.getElementById('latestMeta');
       const latestBtn = document.getElementById('latestBtn');
       const heroDownload = document.getElementById('heroDownload');
+      const macVersion = document.getElementById('macVersion');
+      const macMeta = document.getElementById('macMeta');
+      const macBtn = document.getElementById('macBtn');
+      const heroMac = document.getElementById('heroMac');
       const androidVersion = document.getElementById('androidVersion');
       const androidMeta = document.getElementById('androidMeta');
       const androidBtn = document.getElementById('androidBtn');
@@ -501,6 +514,27 @@
       latestBtn.setAttribute('download', '');
       heroDownload.href = latest.file;
       heroDownload.setAttribute('download', '');
+      const extras = [];
+      const mac = data.mac || null;
+      if (mac && mac.file) {
+        macVersion.textContent = 'v' + mac.version;
+        macMeta.textContent = [formatBytes(mac.size), formatDate(mac.releasedAt || mac.mtime), mac.channel || 'macOS'].filter(Boolean).join(' · ');
+        macBtn.href = mac.file;
+        macBtn.setAttribute('download', '');
+        heroMac.href = mac.file;
+        heroMac.setAttribute('download', '');
+        extras.push({
+          version: mac.version,
+          file: mac.file,
+          size: mac.size,
+          mtime: mac.mtime,
+          releasedAt: mac.releasedAt,
+          channel: mac.channel || 'macOS Apple Silicon'
+        });
+      } else {
+        macVersion.textContent = '暂无安装包';
+        macBtn.style.display = 'none';
+      }
       const android = data.android || null;
       if (android && android.file) {
         androidVersion.textContent = 'v' + android.version;
@@ -509,12 +543,7 @@
         androidBtn.setAttribute('download', '');
         heroAndroid.href = android.file;
         heroAndroid.setAttribute('download', '');
-      } else {
-        androidVersion.textContent = '暂无安装包';
-        androidBtn.style.display = 'none';
-      }
-      if (android && android.file) {
-        versions.unshift({
+        extras.push({
           version: android.version,
           file: android.file,
           size: android.size,
@@ -522,18 +551,24 @@
           releasedAt: android.releasedAt,
           channel: android.channel || 'Android'
         });
+      } else {
+        androidVersion.textContent = '暂无安装包';
+        androidBtn.style.display = 'none';
       }
+      versions.unshift(...extras);
       listEl.innerHTML = '';
       for (const v of versions) {
         const item = document.createElement('div');
         item.className = 'item';
-        const isLatest = latest && v.version === latest.version && (v.channel || 'Windows x64') !== 'Android';
+        const channel = v.channel || 'Windows x64';
+        const isWinLatest = latest && v.version === latest.version && channel === (latest.channel || 'Windows x64');
+        const isMacLatest = mac && v.file === mac.file;
         const isAndroidLatest = android && v.file === android.file;
         item.innerHTML =
           '<div><p class="item-title">v' + v.version +
-          (isLatest || isAndroidLatest ? '<span class="pill">最新</span>' : '') +
+          (isWinLatest || isMacLatest || isAndroidLatest ? '<span class="pill">最新</span>' : '') +
           '</p><p class="item-meta">' +
-          [v.channel || 'Windows x64', formatBytes(v.size), formatDate(v.releasedAt || v.mtime)].filter(Boolean).join(' · ') +
+          [channel, formatBytes(v.size), formatDate(v.releasedAt || v.mtime)].filter(Boolean).join(' · ') +
           '</p></div>';
         const a = document.createElement('a');
         a.className = 'btn btn-ghost';
