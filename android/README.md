@@ -1,6 +1,6 @@
 # 简行浏览器 Android
 
-青少年家长控制浏览器（配套 Electron Windows 版 SimplyGo / 简行），包名 `com.jianxing.browser`，版本 **1.1.34** (versionCode 34)。
+青少年家长控制浏览器（配套 Electron Windows 版 SimplyGo / 简行），包名 `com.jianxing.browser`，版本 **1.1.35** (versionCode 35)。
 
 目标：与 Windows Electron 客户端在界面与功能上对齐。
 
@@ -12,7 +12,7 @@
 - WebView 浏览器：地址栏、后退/前进/刷新、书签星标、书签工具栏芯片
 - 家长密码：与 Electron 相同的 scrypt 哈希（`scrypt$salt$hash`，N=16384,r=8,p=1,keylen=64）
 - 本地规则 CRUD：配置组 / hosts / B 站扩展 `allowedMids`
-- 导航守卫：仅 http/https；主机须匹配已启用配置组；B 站按路径与 UP mid 校验
+- 导航守卫：仅 http/https（飞连 `corporlink`/`corplink` 交给系统应用）；主机须匹配已启用配置组；B 站按路径与 UP mid 校验
 - 已批准访问申请：同 host+pathname 在守卫前放行
 - 拦截页：中文 reason 映射 +「申请访问」（与 Windows block 页一致）
 - 家长设置多面板：账号门禁 → 解锁 → 概览 / 配置组 / 访问申请 / 账号与同步 / 账号安全

@@ -26,6 +26,7 @@ import {
   canNavigate,
   hostAllowed,
   isDownloadAllowed,
+  parseExternalAppUrl,
 } from './navigation-guard';
 import { HistoryStore } from './history-store';
 import { createHistorySync } from './history-sync';
@@ -468,9 +469,34 @@ async function loadTabUrl(
   }
 }
 
+async function openExternalAppUrl(rawUrl: string): Promise<boolean> {
+  const target = parseExternalAppUrl(rawUrl);
+  if (!target) return false;
+  try {
+    await shell.openExternal(target);
+  } catch {
+    const opts = {
+      type: 'warning' as const,
+      title: '无法打开应用',
+      message: '未能打开对应的本地应用，请确认已安装飞连（CorpLink）。',
+    };
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      await dialog.showMessageBox(mainWindow, opts);
+    } else {
+      await dialog.showMessageBox(opts);
+    }
+  }
+  return true;
+}
+
 async function guardedLoad(tab: TabState, targetUrl: string): Promise<void> {
   const wc = tab.view.webContents;
   if (!isLiveWebContents(wc)) return;
+  if (await openExternalAppUrl(targetUrl)) {
+    tab.loading = false;
+    updateNavState(tab);
+    return;
+  }
   tab.loading = true;
   notifyShell('shell:state', tabSnapshot());
 
@@ -540,6 +566,10 @@ function attachGuards(tab: TabState): void {
   const wc = tab.view.webContents;
 
   wc.setWindowOpenHandler(({ url }) => {
+    if (parseExternalAppUrl(url)) {
+      void openExternalAppUrl(url);
+      return { action: 'deny' };
+    }
     if (
       looksLikeDownloadUrl(url) &&
       isDownloadAllowed(url, rulesStore.getRaw())
@@ -553,6 +583,11 @@ function attachGuards(tab: TabState): void {
 
   wc.on('will-navigate', (event, url) => {
     if (guardNavigating.has(wc)) return;
+    if (parseExternalAppUrl(url)) {
+      event.preventDefault();
+      void openExternalAppUrl(url);
+      return;
+    }
     if (url.startsWith('file:') && url.includes('/block/')) return;
     if (
       looksLikeDownloadUrl(url) &&
@@ -574,6 +609,11 @@ function attachGuards(tab: TabState): void {
   // redirects must not loadURL inside this handler — defer it.
   wc.on('will-redirect', (event, url) => {
     if (url.startsWith('file:')) return;
+    if (parseExternalAppUrl(url)) {
+      event.preventDefault();
+      void openExternalAppUrl(url);
+      return;
+    }
     if (!rulesStore.isFilteringEnabled()) return;
     let allowed = false;
     try {

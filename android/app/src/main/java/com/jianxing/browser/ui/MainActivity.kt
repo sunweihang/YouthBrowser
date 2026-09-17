@@ -298,6 +298,7 @@ class MainActivity : AppCompatActivity() {
                 val url = request?.url?.toString() ?: return false
                 val tab = tabs.find { it.webView == view } ?: return true
                 if (url.startsWith("file:///android_asset/")) return false
+                if (openExternalAppUrl(url)) return true
                 if (DownloadsHelper.looksLikeDownload(url)) {
                     startDownload(url, view?.settings?.userAgentString, null, null)
                     return true
@@ -312,6 +313,7 @@ class MainActivity : AppCompatActivity() {
             override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
                 if (url.isNullOrBlank() || url.startsWith("file:///android_asset/")) return false
                 val tab = tabs.find { it.webView == view } ?: return true
+                if (openExternalAppUrl(url)) return true
                 if (DownloadsHelper.looksLikeDownload(url)) {
                     startDownload(url, view?.settings?.userAgentString, null, null)
                     return true
@@ -445,7 +447,19 @@ class MainActivity : AppCompatActivity() {
         return s
     }
 
+    private fun openExternalAppUrl(rawUrl: String): Boolean {
+        val target = NavigationGuard.parseExternalAppUrl(rawUrl) ?: return false
+        return try {
+            startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(target)))
+            true
+        } catch (_: Exception) {
+            Toast.makeText(this, "未能打开对应的本地应用，请确认已安装飞连", Toast.LENGTH_SHORT).show()
+            true
+        }
+    }
+
     private fun checkAndLoad(tab: BrowserTab, rawUrl: String, @Suppress("UNUSED_PARAMETER") fromUser: Boolean) {
+        if (openExternalAppUrl(rawUrl)) return
         val app = JianXingApp.instance
         val candidate = normalizeForCheck(rawUrl)
         guardExecutor.execute {

@@ -68,6 +68,21 @@ object NavigationGuard {
         return staticAssetHosts.any { suffix -> h == suffix || h.endsWith(".$suffix") }
     }
 
+    private val externalAppSchemes = setOf("corporlink", "corplink")
+
+    fun parseExternalAppUrl(rawUrl: String): String? {
+        val href = rawUrl.trim()
+        if (href.isEmpty()) return null
+        val url = try {
+            URI(href)
+        } catch (_: Exception) {
+            return null
+        }
+        val scheme = url.scheme?.lowercase() ?: return null
+        if (!externalAppSchemes.contains(scheme)) return null
+        return href
+    }
+
     private fun deny(
         reason: BlockReason,
         message: String,

@@ -74,6 +74,23 @@ function isBiliStaticOrApi(host: string): boolean {
   );
 }
 
+/** Native app schemes handed to the OS (e.g. 飞连 / CorpLink SSO). */
+const EXTERNAL_APP_SCHEMES = new Set(['corporlink', 'corplink']);
+
+export function parseExternalAppUrl(rawUrl: string): string | null {
+  const href = String(rawUrl || '').trim();
+  if (!href) return null;
+  let url: URL;
+  try {
+    url = new URL(href);
+  } catch {
+    return null;
+  }
+  const scheme = url.protocol.replace(/:$/, '').toLowerCase();
+  if (!EXTERNAL_APP_SCHEMES.has(scheme)) return null;
+  return href;
+}
+
 function deny(
   reason: BlockReason,
   message: string,

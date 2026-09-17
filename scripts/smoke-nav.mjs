@@ -23,7 +23,9 @@ await esbuild.build({
 });
 
 const require = createRequire(import.meta.url);
-const { canNavigate, hostAllowed } = require(join(outDir, 'nav.cjs'));
+const { canNavigate, hostAllowed, parseExternalAppUrl } = require(
+  join(outDir, 'nav.cjs')
+);
 
 function assert(cond, msg) {
   if (!cond) throw new Error(msg);
@@ -84,6 +86,23 @@ assert(!r.allowed && r.reason === 'bili_up_denied', 'deny after mid change');
 rules.groups[0].enabled = false;
 r = await canNavigate('https://space.bilibili.com/2', rules);
 assert(!r.allowed && r.reason === 'host_denied', 'disabled group blocks');
+
+assert(
+  parseExternalAppUrl('corporlink://login?token=abc') ===
+    'corporlink://login?token=abc',
+  'recognize corporlink'
+);
+assert(
+  Boolean(parseExternalAppUrl('CORPORLINK://login?token=abc')),
+  'corporlink is case-insensitive'
+);
+assert(
+  Boolean(parseExternalAppUrl('corplink://login?token=abc')),
+  'recognize corplink'
+);
+assert(!parseExternalAppUrl('javascript:alert(1)'), 'reject javascript');
+assert(!parseExternalAppUrl('file:///etc/passwd'), 'reject file');
+assert(!parseExternalAppUrl('https://www.example.com'), 'http is not external');
 
 console.log('smoke-nav: OK');
 rmSync(outDir, { recursive: true, force: true });
