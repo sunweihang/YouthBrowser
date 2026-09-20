@@ -127,9 +127,11 @@ function loadChromePrefs(): void {
   } catch {
     bookmarksBarVisible = true;
   }
-  if (!hasHomepageKey) {
-    const migrated = rulesStore.getHomepage();
-    if (migrated) homepage = migrated;
+  const chromeHome = homepage;
+  if (!homepage) {
+    homepage = rulesStore.getHomepage() || '';
+  }
+  if (!hasHomepageKey || (!chromeHome && homepage)) {
     saveChromePrefs();
   }
 }
@@ -145,7 +147,7 @@ function saveChromePrefs(): void {
 }
 
 function getHomepage(): string {
-  return homepage;
+  return homepage || rulesStore.getHomepage() || '';
 }
 
 function setHomepage(
@@ -155,6 +157,7 @@ function setHomepage(
   if (!parsed.ok) return parsed;
   homepage = parsed.url;
   saveChromePrefs();
+  rulesStore.setHomepage(parsed.url);
   return { ok: true, homepage };
 }
 
