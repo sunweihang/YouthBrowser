@@ -290,6 +290,27 @@ function distPath(...parts: string[]): string {
   return join(__dirname, '..', ...parts);
 }
 
+/** Window/taskbar icon (exe icon alone is not enough after minimize). */
+function appIconPath(): string | undefined {
+  const candidates = [
+    join(dirname(process.execPath), 'app.ico'),
+    join(process.resourcesPath || '', 'app.ico'),
+    join(app.getAppPath(), 'build', 'icon.ico'),
+    join(__dirname, '..', '..', 'build', 'icon.ico'),
+  ];
+  for (const p of candidates) {
+    if (p && existsSync(p)) return p;
+  }
+  return undefined;
+}
+
+function withAppIcon(
+  opts: BrowserWindowConstructorOptions
+): BrowserWindowConstructorOptions {
+  const icon = appIconPath();
+  return icon ? { ...opts, icon } : opts;
+}
+
 function rendererFile(...parts: string[]): string {
   return pathToFileURL(distPath('renderer', ...parts)).toString();
 }
@@ -1005,7 +1026,7 @@ function createMainWindow(): void {
       height: titleBarOverlayHeight(),
     };
   }
-  mainWindow = new BrowserWindow(winOpts);
+  mainWindow = new BrowserWindow(withAppIcon(winOpts));
   attachWindowZoom(mainWindow);
 
   applyMenuBarVisibility();
@@ -1075,7 +1096,8 @@ function openParentWindow(_forceSetup = false): void {
   }
 
   // Do not parent to mainWindow: BrowserView + child window crashes Chromium on Windows.
-  parentWindow = new BrowserWindow({
+  parentWindow = new BrowserWindow(
+    withAppIcon({
     width: 900,
     height: 680,
     minWidth: 720,
@@ -1088,7 +1110,8 @@ function openParentWindow(_forceSetup = false): void {
       nodeIntegration: false,
       sandbox: true,
     },
-  });
+    })
+  );
   parentWindow.setMenuBarVisibility(false);
   attachWindowZoom(parentWindow);
   void parentWindow.loadURL(rendererFile('parent', 'index.html'));
@@ -1214,7 +1237,8 @@ function openUpdateWindow(): void {
     return;
   }
   // Do not parent to mainWindow: BrowserView + child window crashes Chromium on Windows.
-  updateWindow = new BrowserWindow({
+  updateWindow = new BrowserWindow(
+    withAppIcon({
     width: 440,
     height: 380,
     minWidth: 400,
@@ -1227,7 +1251,8 @@ function openUpdateWindow(): void {
       nodeIntegration: false,
       sandbox: true,
     },
-  });
+    })
+  );
   updateWindow.setMenuBarVisibility(false);
   attachWindowZoom(updateWindow);
   void updateWindow.loadURL(rendererFile('update', 'index.html'));
@@ -1262,7 +1287,8 @@ function openPasswordsWindow(): void {
     return;
   }
   // Do not parent to mainWindow: BrowserView + child window crashes Chromium on Windows.
-  passwordsWindow = new BrowserWindow({
+  passwordsWindow = new BrowserWindow(
+    withAppIcon({
     width: 640,
     height: 520,
     minWidth: 480,
@@ -1275,7 +1301,8 @@ function openPasswordsWindow(): void {
       nodeIntegration: false,
       sandbox: true,
     },
-  });
+    })
+  );
   passwordsWindow.setMenuBarVisibility(false);
   attachWindowZoom(passwordsWindow);
   void passwordsWindow.loadURL(rendererFile('passwords', 'index.html'));
@@ -1309,7 +1336,8 @@ function openHistoryWindow(): void {
 
   // Do not parent this to mainWindow. BrowserView + a child window is a
   // known Chromium crash on Windows when the tab later navigates.
-  historyWindow = new BrowserWindow({
+  historyWindow = new BrowserWindow(
+    withAppIcon({
     width: 860,
     height: 640,
     minWidth: 640,
@@ -1323,7 +1351,8 @@ function openHistoryWindow(): void {
       nodeIntegration: false,
       sandbox: true,
     },
-  });
+    })
+  );
   historyWindow.setMenuBarVisibility(false);
   attachWindowZoom(historyWindow);
   void historyWindow.loadURL(rendererFile('history', 'index.html'));
@@ -1343,7 +1372,8 @@ function openDownloadsWindow(): void {
   }
 
   // Do not parent to mainWindow: BrowserView + child window crashes Chromium on Windows.
-  downloadsWindow = new BrowserWindow({
+  downloadsWindow = new BrowserWindow(
+    withAppIcon({
     width: 860,
     height: 640,
     minWidth: 640,
@@ -1356,7 +1386,8 @@ function openDownloadsWindow(): void {
       nodeIntegration: false,
       sandbox: true,
     },
-  });
+    })
+  );
   downloadsWindow.setMenuBarVisibility(false);
   attachWindowZoom(downloadsWindow);
   void downloadsWindow.loadURL(rendererFile('downloads', 'index.html'));
@@ -1814,7 +1845,8 @@ function showAboutDialog(): void {
     return;
   }
   // Do not parent to mainWindow: BrowserView + child window crashes Chromium on Windows.
-  aboutWindow = new BrowserWindow({
+  aboutWindow = new BrowserWindow(
+    withAppIcon({
     width: 360,
     height: 300,
     resizable: false,
@@ -1830,7 +1862,8 @@ function showAboutDialog(): void {
       nodeIntegration: false,
       sandbox: true,
     },
-  });
+    })
+  );
   aboutWindow.setMenuBarVisibility(false);
   attachWindowZoom(aboutWindow);
   void aboutWindow.loadURL(rendererFile('about', 'index.html'));
@@ -1850,7 +1883,8 @@ function openBookmarksManager(): void {
   }
 
   // Do not parent to mainWindow: BrowserView + child window crashes Chromium on Windows.
-  bookmarksWindow = new BrowserWindow({
+  bookmarksWindow = new BrowserWindow(
+    withAppIcon({
     width: 920,
     height: 620,
     minWidth: 720,
@@ -1863,7 +1897,8 @@ function openBookmarksManager(): void {
       nodeIntegration: false,
       sandbox: true,
     },
-  });
+    })
+  );
   bookmarksWindow.setMenuBarVisibility(false);
   attachWindowZoom(bookmarksWindow);
   void bookmarksWindow.loadURL(rendererFile('bookmarks', 'index.html'));
@@ -2977,6 +3012,9 @@ function registerIpc(): void {
 
 app.whenReady().then(() => {
   if (!gotSingleInstanceLock) return;
+  if (process.platform === 'win32') {
+    app.setAppUserModelId('com.jianxing.browser');
+  }
   pendingLaunchUrl = extractLaunchUrl(process.argv) || pendingLaunchUrl;
   rulesStore = new RulesStore();
   bookmarksStore = new BookmarksStore();
