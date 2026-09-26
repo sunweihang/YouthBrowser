@@ -4,6 +4,7 @@ const authShell = document.getElementById('authShell');
 const setupPanel = document.getElementById('setupPanel');
 const accountGatePanel = document.getElementById('accountGatePanel');
 const accountRegisterPanel = document.getElementById('accountRegisterPanel');
+const accountResetPanel = document.getElementById('accountResetPanel');
 const unlockPanel = document.getElementById('unlockPanel');
 const dashboard = document.getElementById('dashboard');
 const createModal = document.getElementById('createModal');
@@ -12,10 +13,22 @@ let currentRules = null;
 let activeGroupId = null;
 
 function hideAllAuthPanels() {
-  setupPanel.classList.add('hidden');
+  if (setupPanel) setupPanel.classList.add('hidden');
   accountGatePanel.classList.add('hidden');
   accountRegisterPanel.classList.add('hidden');
+  accountResetPanel.classList.add('hidden');
   unlockPanel.classList.add('hidden');
+}
+
+async function enterAfterAuth(res, preferredPage = 'overview') {
+  if (res && res.unlocked && res.rules) {
+    showDashboard();
+    applyRules(res.rules);
+    goPage(preferredPage);
+    void refreshWatchRequests();
+    return true;
+  }
+  return false;
 }
 
 function showAuth(panel) {
@@ -301,10 +314,6 @@ function applyRules(rules) {
 
 async function boot() {
   const meta = await api.getMeta();
-  if (meta.forceSetup) {
-    showAuth(setupPanel);
-    return;
-  }
   if (meta.unlocked && meta.rules) {
     showDashboard();
     applyRules(meta.rules);
@@ -391,23 +400,6 @@ document.getElementById('openCreateBtn').addEventListener('click', openCreateMod
 document.getElementById('cancelCreateBtn').addEventListener('click', closeCreateModal);
 document.getElementById('createModalBackdrop').addEventListener('click', closeCreateModal);
 
-document.getElementById('setupBtn').addEventListener('click', async () => {
-  const p1 = document.getElementById('setupPass').value;
-  const p2 = document.getElementById('setupPass2').value;
-  const err = document.getElementById('setupError');
-  err.textContent = '';
-  if (p1 !== p2) {
-    err.textContent = '两次密码不一致';
-    return;
-  }
-  const res = await api.setupPassword(p1);
-  if (!res.ok) {
-    err.textContent = res.error || '设置失败';
-    return;
-  }
-  await enterDashboard('groups');
-});
-
 document.getElementById('unlockBtn').addEventListener('click', async () => {
   const password = document.getElementById('unlockPass').value;
   const err = document.getElementById('unlockError');
@@ -469,6 +461,168 @@ document.getElementById('gateGotoLogin').addEventListener('click', () => {
   void showAccountGate();
 });
 
+function startCodeCountdown(btn, seconds = 60) {
+  if (btn._cd) clearInterval(btn._cd);
+  const original = btn.dataset.label || btn.textContent;
+  btn.dataset.label = original;
+  let left = seconds;
+  const render = () => {
+    if (left <= 0) {
+      clearInterval(btn._cd);
+      btn._cd = null;
+      btn.disabled = false;
+      btn.textContent = original;
+      return;
+    }
+    btn.disabled = true;
+    btn.textContent = `${left}s 后重发`;
+    left -= 1;
+  };
+  render();
+  btn._cd = setInterval(render, 1000);
+}
+
+function resetGateResetForm() {
+  document.getElementById('gateResetVerifyStep').classList.remove('hidden');
+  document.getElementById('gateResetCodeStep').classList.add('hidden');
+  document.getElementById('gateResetUser').readOnly = false;
+  document.getElementById('gateResetEmail').readOnly = false;
+  document.getElementById('gateResetError').textContent = '';
+  document.getElementById('gateResetOk').textContent = '';
+  document.getElementById('gateResetCodeError').textContent = '';
+  document.getElementById('gateResetCodeOk').textContent = '';
+  document.getElementById('gateResetCode').value = '';
+  document.getElementById('gateResetPass').value = '';
+  document.getElementById('gateResetPass2').value = '';
+}
+
+function showGateReset() {
+  resetGateResetForm();
+  const user = document.getElementById('gateLoginUser').value.trim();
+  if (user) document.getElementById('gateResetUser').value = user;
+  showAuth(accountResetPanel);
+}
+
+document.getElementById('gateForgotBtn').addEventListener('click', () => {
+  showGateReset();
+});
+
+document.getElementById('gateResetBackBtn').addEventListener('click', () => {
+  void showAccountGate();
+});
+document.getElementById('gateResetBackBtn2').addEventListener('click', () => {
+  void showAccountGate();
+});
+
+document.getElementById('gateResetVerifyBtn').addEventListener('click', async () => {
+  const err = document.getElementById('gateResetError');
+  const ok = document.getElementById('gateResetOk');
+  err.textContent = '';
+  ok.textContent = '';
+  const username = document.getElementById('gateResetUser').value.trim();
+  const email = document.getElementById('gateResetEmail').value.trim();
+  const btn = document.getElementById('gateResetVerifyBtn');
+  if (!username) {
+    err.textContent = '请填写用户名';
+    return;
+  }
+  if (!email) {
+    err.textContent = '请填写邮箱';
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = '验证中…';
+  try {
+    const res = await api.verifyResetEmail({ username, email });
+    if (!res.ok) {
+      err.textContent = res.error || '验证失败';
+      return;
+    }
+    document.getElementById('gateResetUser').readOnly = true;
+    document.getElementById('gateResetEmail').readOnly = true;
+    document.getElementById('gateResetVerifiedText').textContent = `邮箱已验证：${email}`;
+    document.getElementById('gateResetVerifyStep').classList.add('hidden');
+    document.getElementById('gateResetCodeStep').classList.remove('hidden');
+    document.getElementById('gateResetCodeOk').textContent =
+      '邮箱验证通过，请发送验证码';
+  } catch (e) {
+    err.textContent = e && e.message ? e.message : '验证失败';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '验证邮箱';
+  }
+});
+
+document.getElementById('gateResetSendBtn').addEventListener('click', async () => {
+  const err = document.getElementById('gateResetCodeError');
+  const ok = document.getElementById('gateResetCodeOk');
+  err.textContent = '';
+  ok.textContent = '';
+  const btn = document.getElementById('gateResetSendBtn');
+  btn.disabled = true;
+  try {
+    const res = await api.forgotPassword({
+      username: document.getElementById('gateResetUser').value.trim(),
+      email: document.getElementById('gateResetEmail').value.trim(),
+    });
+    if (!res.ok) {
+      btn.disabled = false;
+      err.textContent = res.error || '发送失败';
+      return;
+    }
+    startCodeCountdown(btn);
+    ok.textContent = res.message || '验证码已发送，请查收邮箱';
+  } catch (e) {
+    btn.disabled = false;
+    err.textContent = e && e.message ? e.message : '发送失败';
+  }
+});
+
+document.getElementById('gateResetSaveBtn').addEventListener('click', async () => {
+  const err = document.getElementById('gateResetCodeError');
+  const ok = document.getElementById('gateResetCodeOk');
+  err.textContent = '';
+  ok.textContent = '';
+  const code = document.getElementById('gateResetCode').value.trim();
+  const newPassword = document.getElementById('gateResetPass').value;
+  const newPassword2 = document.getElementById('gateResetPass2').value;
+  if (!/^\d{6}$/.test(code)) {
+    err.textContent = '请输入 6 位邮箱验证码';
+    return;
+  }
+  if (newPassword.length < 6) {
+    err.textContent = '新密码至少 6 位';
+    return;
+  }
+  if (newPassword !== newPassword2) {
+    err.textContent = '两次新密码不一致';
+    return;
+  }
+  const btn = document.getElementById('gateResetSaveBtn');
+  btn.disabled = true;
+  btn.textContent = '提交中…';
+  try {
+    const res = await api.resetPassword({
+      username: document.getElementById('gateResetUser').value.trim(),
+      email: document.getElementById('gateResetEmail').value.trim(),
+      code,
+      newPassword,
+    });
+    if (!res.ok) {
+      err.textContent = res.error || '修改失败';
+      return;
+    }
+    ok.textContent = res.message || '密码已修改，请返回登录';
+    btn.textContent = '已修改';
+    document.getElementById('gateLoginUser').value =
+      document.getElementById('gateResetUser').value.trim();
+  } catch (e) {
+    err.textContent = e && e.message ? e.message : '修改失败';
+    btn.disabled = false;
+    btn.textContent = '确认修改';
+  }
+});
+
 document.getElementById('gateLoginForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const err = document.getElementById('gateLoginError');
@@ -482,7 +636,7 @@ document.getElementById('gateLoginForm').addEventListener('submit', async (e) =>
     return;
   }
   document.getElementById('gateLoginPass').value = '';
-  await showUnlockGate();
+  if (!(await enterAfterAuth(res))) await showUnlockGate();
 });
 
 document.getElementById('gateRegisterForm').addEventListener('submit', async (e) => {
@@ -490,7 +644,12 @@ document.getElementById('gateRegisterForm').addEventListener('submit', async (e)
   const err = document.getElementById('gateRegisterError');
   const pass = document.getElementById('gateRegisterPass').value;
   const pass2 = document.getElementById('gateRegisterPass2').value;
+  const email = document.getElementById('gateRegisterEmail').value.trim();
   err.textContent = '';
+  if (!email) {
+    err.textContent = '请填写邮箱';
+    return;
+  }
   if (pass.length < 6) {
     err.textContent = '密码至少 6 位';
     return;
@@ -501,6 +660,7 @@ document.getElementById('gateRegisterForm').addEventListener('submit', async (e)
   }
   const res = await api.registerAccount({
     username: document.getElementById('gateRegisterUser').value.trim(),
+    email,
     password: pass,
   });
   if (!res.ok) {
@@ -509,11 +669,19 @@ document.getElementById('gateRegisterForm').addEventListener('submit', async (e)
   }
   document.getElementById('gateRegisterPass').value = '';
   document.getElementById('gateRegisterPass2').value = '';
-  await showUnlockGate();
+  if (!(await enterAfterAuth(res, 'groups'))) await showUnlockGate();
 });
 
 document.getElementById('gateLogoutBtn').addEventListener('click', async () => {
-  await api.logoutAccount();
+  const password = document.getElementById('unlockPass').value;
+  const err = document.getElementById('unlockError');
+  err.textContent = '';
+  const res = await api.logoutAccount(password);
+  if (!res.ok) {
+    err.textContent = res.error || '密码错误';
+    return;
+  }
+  document.getElementById('unlockPass').value = '';
   await showAccountGate();
 });
 
@@ -603,6 +771,10 @@ document.getElementById('changePassBtn').addEventListener('click', async () => {
   ok.textContent = '';
   const next = document.getElementById('newPass').value;
   const next2 = document.getElementById('newPass2').value;
+  if (next.length < 6) {
+    err.textContent = '新密码至少 6 位';
+    return;
+  }
   if (next !== next2) {
     err.textContent = '两次新密码不一致';
     return;
@@ -615,7 +787,7 @@ document.getElementById('changePassBtn').addEventListener('click', async () => {
     err.textContent = res.error || '修改失败';
     return;
   }
-  ok.textContent = '密码已更新';
+  ok.textContent = res.message || '密码已更新（账号与本机解锁共用）';
   document.getElementById('curPass').value = '';
   document.getElementById('newPass').value = '';
   document.getElementById('newPass2').value = '';
@@ -797,8 +969,21 @@ async function refreshWatchRequests() {
 function showAuthMode(mode) {
   document.getElementById('loginCard').classList.toggle('hidden', mode !== 'login');
   document.getElementById('registerCard').classList.toggle('hidden', mode !== 'register');
+  document.getElementById('resetCard').classList.toggle('hidden', mode !== 'reset');
   document.getElementById('loginError').textContent = '';
   document.getElementById('registerError').textContent = '';
+  document.getElementById('resetError').textContent = '';
+  document.getElementById('resetOk').textContent = '';
+  document.getElementById('resetCodeError').textContent = '';
+  document.getElementById('resetCodeOk').textContent = '';
+  if (mode === 'reset') {
+    document.getElementById('resetVerifyStep').classList.remove('hidden');
+    document.getElementById('resetCodeStep').classList.add('hidden');
+    document.getElementById('resetUser').readOnly = false;
+    document.getElementById('resetEmail').readOnly = false;
+    const u = document.getElementById('loginUser').value.trim();
+    if (u) document.getElementById('resetUser').value = u;
+  }
 }
 
 async function refreshAccountPanel(opts = {}) {
@@ -832,6 +1017,22 @@ async function refreshAccountPanel(opts = {}) {
       ? `上次同步：${t}`
       : '尚未同步过';
 
+    const bindBox = document.getElementById('bindEmailBox');
+    const emailLine = document.getElementById('accountEmailLine');
+    try {
+      const me = await api.getAccountMe();
+      if (me && me.ok && me.hasEmail) {
+        emailLine.textContent = `邮箱：${me.emailMasked || me.email || '已绑定'}`;
+        bindBox.classList.add('hidden');
+      } else {
+        emailLine.textContent = '邮箱：未绑定（绑定后可用邮箱找回密码）';
+        bindBox.classList.remove('hidden');
+      }
+    } catch {
+      emailLine.textContent = '邮箱：—';
+      bindBox.classList.remove('hidden');
+    }
+
     try {
       const status = await api.getSyncStatus();
       if (!status || !status.ok) {
@@ -864,6 +1065,150 @@ document.getElementById('gotoLoginBtn').addEventListener('click', () => {
   showAuthMode('login');
 });
 
+document.getElementById('gotoResetBtn').addEventListener('click', () => {
+  showAuthMode('reset');
+});
+
+document.getElementById('resetBackBtn').addEventListener('click', () => {
+  showAuthMode('login');
+});
+document.getElementById('resetBackBtn2').addEventListener('click', () => {
+  showAuthMode('login');
+});
+
+document.getElementById('resetVerifyBtn').addEventListener('click', async () => {
+  const err = document.getElementById('resetError');
+  const ok = document.getElementById('resetOk');
+  err.textContent = '';
+  ok.textContent = '';
+  const username = document.getElementById('resetUser').value.trim();
+  const email = document.getElementById('resetEmail').value.trim();
+  const btn = document.getElementById('resetVerifyBtn');
+  if (!username) {
+    err.textContent = '请填写用户名';
+    return;
+  }
+  if (!email) {
+    err.textContent = '请填写邮箱';
+    return;
+  }
+  btn.disabled = true;
+  try {
+    const res = await api.verifyResetEmail({ username, email });
+    if (!res.ok) {
+      err.textContent = res.error || '验证失败';
+      return;
+    }
+    document.getElementById('resetUser').readOnly = true;
+    document.getElementById('resetEmail').readOnly = true;
+    document.getElementById('resetVerifiedText').textContent = `邮箱已验证：${email}`;
+    document.getElementById('resetVerifyStep').classList.add('hidden');
+    document.getElementById('resetCodeStep').classList.remove('hidden');
+    document.getElementById('resetCodeOk').textContent = '邮箱验证通过，请发送验证码';
+  } catch (e) {
+    err.textContent = e && e.message ? e.message : '验证失败';
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+document.getElementById('resetSendBtn').addEventListener('click', async () => {
+  const err = document.getElementById('resetCodeError');
+  const ok = document.getElementById('resetCodeOk');
+  err.textContent = '';
+  ok.textContent = '';
+  const btn = document.getElementById('resetSendBtn');
+  btn.disabled = true;
+  try {
+    const res = await api.forgotPassword({
+      username: document.getElementById('resetUser').value.trim(),
+      email: document.getElementById('resetEmail').value.trim(),
+    });
+    if (!res.ok) {
+      btn.disabled = false;
+      err.textContent = res.error || '发送失败';
+      return;
+    }
+    startCodeCountdown(btn);
+    ok.textContent = res.message || '验证码已发送，请查收邮箱';
+  } catch (e) {
+    btn.disabled = false;
+    err.textContent = e && e.message ? e.message : '发送失败';
+  }
+});
+
+document.getElementById('resetSaveBtn').addEventListener('click', async () => {
+  const err = document.getElementById('resetCodeError');
+  const ok = document.getElementById('resetCodeOk');
+  err.textContent = '';
+  ok.textContent = '';
+  const code = document.getElementById('resetCode').value.trim();
+  const newPassword = document.getElementById('resetPass').value;
+  const newPassword2 = document.getElementById('resetPass2').value;
+  if (!/^\d{6}$/.test(code)) {
+    err.textContent = '请输入 6 位邮箱验证码';
+    return;
+  }
+  if (newPassword.length < 6) {
+    err.textContent = '新密码至少 6 位';
+    return;
+  }
+  if (newPassword !== newPassword2) {
+    err.textContent = '两次新密码不一致';
+    return;
+  }
+  const btn = document.getElementById('resetSaveBtn');
+  btn.disabled = true;
+  btn.textContent = '提交中…';
+  try {
+    const res = await api.resetPassword({
+      username: document.getElementById('resetUser').value.trim(),
+      email: document.getElementById('resetEmail').value.trim(),
+      code,
+      newPassword,
+    });
+    if (!res.ok) {
+      err.textContent = res.error || '修改失败';
+      btn.disabled = false;
+      btn.textContent = '确认修改';
+      return;
+    }
+    ok.textContent = res.message || '密码已修改，请返回登录';
+    btn.textContent = '已修改';
+    document.getElementById('loginUser').value =
+      document.getElementById('resetUser').value.trim();
+  } catch (e) {
+    err.textContent = e && e.message ? e.message : '修改失败';
+    btn.disabled = false;
+    btn.textContent = '确认修改';
+  }
+});
+
+document.getElementById('bindEmailBtn').addEventListener('click', async () => {
+  const err = document.getElementById('bindEmailError');
+  const ok = document.getElementById('bindEmailOk');
+  err.textContent = '';
+  ok.textContent = '';
+  const email = document.getElementById('bindEmailInput').value.trim();
+  const password = document.getElementById('bindEmailPass').value;
+  if (!email) {
+    err.textContent = '请填写邮箱';
+    return;
+  }
+  if (!password) {
+    err.textContent = '请填写当前密码';
+    return;
+  }
+  const res = await api.bindEmail({ email, password });
+  if (!res.ok) {
+    err.textContent = res.error || '绑定失败';
+    return;
+  }
+  ok.textContent = res.message || '邮箱绑定成功';
+  document.getElementById('bindEmailPass').value = '';
+  await refreshAccountPanel({ keepMessage: true });
+});
+
 document.getElementById('loginForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const err = document.getElementById('loginError');
@@ -885,7 +1230,12 @@ document.getElementById('registerForm').addEventListener('submit', async (e) => 
   const err = document.getElementById('registerError');
   const pass = document.getElementById('registerPass').value;
   const pass2 = document.getElementById('registerPass2').value;
+  const email = document.getElementById('registerEmail').value.trim();
   err.textContent = '';
+  if (!email) {
+    err.textContent = '请填写邮箱';
+    return;
+  }
   if (pass.length < 6) {
     err.textContent = '密码至少 6 位';
     return;
@@ -896,6 +1246,7 @@ document.getElementById('registerForm').addEventListener('submit', async (e) => 
   }
   const res = await api.registerAccount({
     username: document.getElementById('registerUser').value.trim(),
+    email,
     password: pass,
   });
   if (!res.ok) {
@@ -945,10 +1296,6 @@ document.getElementById('pullBtn').addEventListener('click', async () => {
 });
 
 api.onMeta(async (meta) => {
-  if (meta.forceSetup) {
-    showAuth(setupPanel);
-    return;
-  }
   if (meta.unlocked) {
     void enterDashboard();
     return;

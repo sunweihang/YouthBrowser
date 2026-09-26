@@ -807,6 +807,22 @@ select {
   margin-top: 10px;
 }
 
+.reset-code-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.reset-code-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+.reset-code-row button {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
 .request-list {
   display: flex;
   flex-direction: column;

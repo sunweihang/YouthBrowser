@@ -33,7 +33,15 @@ contextBridge.exposeInMainWorld('youthParent', {
   getSyncStatus: () => ipcRenderer.invoke('account:syncStatus'),
   registerAccount: (input) => ipcRenderer.invoke('account:register', input),
   loginAccount: (input) => ipcRenderer.invoke('account:login', input),
-  logoutAccount: () => ipcRenderer.invoke('account:logout'),
+  logoutAccount: (password?: string) =>
+    ipcRenderer.invoke('account:logout', password),
+  verifyResetEmail: (input) =>
+    ipcRenderer.invoke('account:verifyResetEmail', input),
+  forgotPassword: (input) =>
+    ipcRenderer.invoke('account:forgotPassword', input),
+  resetPassword: (input) => ipcRenderer.invoke('account:resetPassword', input),
+  bindEmail: (input) => ipcRenderer.invoke('account:bindEmail', input),
+  getAccountMe: () => ipcRenderer.invoke('account:me'),
   pushConfig: () => ipcRenderer.invoke('account:push'),
   pullConfig: () => ipcRenderer.invoke('account:pull'),
   listHistory: (query?: string) => ipcRenderer.invoke('history:list', query),

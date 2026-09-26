@@ -1,17 +1,21 @@
 /**
  * 简行浏览器 · 配置同步服务
- * 纯 Node 内置模块，无额外依赖。
+ * 纯 Node 内置模块，无额外依赖（SMTP 自实现）。
  *
  * 环境变量：
  *   PORT=3910
  *   DATA_DIR=/home/lijin/jianxing-browser/sync-data
  *   TOKEN_TTL_DAYS=30
+ *   SMTP_HOST / SMTP_PORT / SMTP_SECURE / SMTP_USER / SMTP_PASS / SMTP_FROM / SMTP_FROM_NAME
+ * 或 DATA_DIR/mail.json（见 mail.example.json）
  */
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { URL } = require('url');
+const mail = require('./mail');
+const { createPasswordReset } = require('./password-reset');
 
 const PORT = Number(process.env.PORT || 3910);
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
@@ -24,6 +28,7 @@ const TOKENS_FILE = path.join(DATA_DIR, 'tokens.json');
 const CRASH_DAILY_MAX_BYTES = 20 * 1024 * 1024;
 const TOKEN_TTL_MS = (Number(process.env.TOKEN_TTL_DAYS) || 30) * 86400000;
 const SCRYPT = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
+const passwordReset = createPasswordReset(DATA_DIR);
 
 function ensureDirs() {
   fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -76,6 +81,54 @@ function normalizeUsername(u) {
 
 function validUsername(u) {
   return /^[a-z0-9_]{3,32}$/.test(u);
+}
+
+function normalizeEmail(raw) {
+  return String(raw || '')
+    .trim()
+    .toLowerCase();
+}
+
+function isValidEmail(email) {
+  return (
+    email.length >= 5 &&
+    email.length <= 120 &&
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+  );
+}
+
+function findUserByEmail(users, email) {
+  const target = normalizeEmail(email);
+  if (!target) return null;
+  for (const [username, row] of Object.entries(users || {})) {
+    if (row && normalizeEmail(row.email) === target) {
+      return { username, user: row };
+    }
+  }
+  return null;
+}
+
+function findUserForEmailReset(usernameRaw, emailRaw) {
+  const username = normalizeUsername(usernameRaw);
+  const email = normalizeEmail(emailRaw);
+  if (!username) return { error: '请填写用户名' };
+  if (!isValidEmail(email)) return { error: '请输入有效的邮箱' };
+  const users = readJson(USERS_FILE, {});
+  const user = users[username];
+  if (!user || !user.email || normalizeEmail(user.email) !== email) {
+    return { error: '用户名或邮箱不正确' };
+  }
+  return { username, user, email, users };
+}
+
+function maskEmail(email) {
+  const e = normalizeEmail(email);
+  const at = e.indexOf('@');
+  if (at <= 1) return e ? '***' : '';
+  const name = e.slice(0, at);
+  const domain = e.slice(at);
+  if (name.length <= 2) return `${name[0]}***${domain}`;
+  return `${name.slice(0, 2)}***${name.slice(-1)}${domain}`;
 }
 
 function send(res, status, body) {
@@ -218,11 +271,15 @@ async function handle(req, res) {
       const body = await readBody(req);
       const username = normalizeUsername(body.username);
       const password = String(body.password || '');
+      const email = normalizeEmail(body.email);
       if (!validUsername(username)) {
         return send(res, 400, {
           ok: false,
           error: '用户名需为 3–32 位小写字母/数字/下划线',
         });
+      }
+      if (!isValidEmail(email)) {
+        return send(res, 400, { ok: false, error: '请输入有效的邮箱' });
       }
       if (password.length < 6) {
         return send(res, 400, { ok: false, error: '密码至少 6 位' });
@@ -231,8 +288,12 @@ async function handle(req, res) {
       if (users[username]) {
         return send(res, 409, { ok: false, error: '用户名已存在' });
       }
+      if (findUserByEmail(users, email)) {
+        return send(res, 409, { ok: false, error: '该邮箱已被注册' });
+      }
       users[username] = {
         passwordHash: hashPassword(password),
+        email,
         createdAt: Date.now(),
       };
       writeJson(USERS_FILE, users);
@@ -243,7 +304,7 @@ async function handle(req, res) {
       });
       writeJson(historyPath(username), emptyHistoryDoc());
       const token = issueToken(username);
-      return send(res, 200, { ok: true, token, username });
+      return send(res, 200, { ok: true, token, username, email });
     }
 
     if (req.method === 'POST' && pathname === '/auth/login') {
@@ -256,7 +317,130 @@ async function handle(req, res) {
         return send(res, 401, { ok: false, error: '用户名或密码错误' });
       }
       const token = issueToken(username);
-      return send(res, 200, { ok: true, token, username });
+      return send(res, 200, {
+        ok: true,
+        token,
+        username,
+        email: user.email || '',
+      });
+    }
+
+    if (req.method === 'POST' && pathname === '/auth/verify-reset-email') {
+      const body = await readBody(req);
+      const found = findUserForEmailReset(body.username, body.email);
+      if (found.error) {
+        return send(res, 400, { ok: false, error: found.error });
+      }
+      return send(res, 200, {
+        ok: true,
+        message: '邮箱验证通过',
+        username: found.username,
+      });
+    }
+
+    if (req.method === 'POST' && pathname === '/auth/forgot-password') {
+      const body = await readBody(req);
+      const found = findUserForEmailReset(body.username, body.email);
+      if (found.error) {
+        return send(res, 400, { ok: false, error: found.error });
+      }
+      if (!mail.isConfigured(DATA_DIR)) {
+        return send(res, 503, {
+          ok: false,
+          error: '邮件服务暂未配置，请联系管理员',
+        });
+      }
+      try {
+        const { code } = passwordReset.createChallenge(
+          found.username,
+          found.email,
+          'reset'
+        );
+        await mail.sendPasswordResetCode(
+          DATA_DIR,
+          found.email,
+          found.username,
+          code
+        );
+      } catch (err) {
+        if (err.status) {
+          return send(res, err.status, {
+            ok: false,
+            error: err.error || err.message,
+          });
+        }
+        console.error('[mail] forgot-password failed', err);
+        return send(res, 502, {
+          ok: false,
+          error: '验证码发送失败，请稍后重试',
+        });
+      }
+      return send(res, 200, {
+        ok: true,
+        message: '验证码已发送，请查收邮箱',
+      });
+    }
+
+    if (req.method === 'POST' && pathname === '/auth/reset-password') {
+      const body = await readBody(req);
+      const username = normalizeUsername(body.username);
+      const email = normalizeEmail(body.email);
+      const code = String(body.code || '').trim();
+      const newPassword = String(body.newPassword || '');
+      const users = readJson(USERS_FILE, {});
+      const user = users[username];
+      if (!user || !user.email || normalizeEmail(user.email) !== email) {
+        return send(res, 400, { ok: false, error: '用户名或邮箱不正确' });
+      }
+      if (newPassword.length < 6) {
+        return send(res, 400, { ok: false, error: '新密码至少 6 位' });
+      }
+      if (!/^\d{6}$/.test(code)) {
+        return send(res, 400, { ok: false, error: '请输入 6 位邮箱验证码' });
+      }
+      const checked = passwordReset.verifyChallenge(
+        username,
+        email,
+        'reset',
+        code
+      );
+      if (!checked.ok) {
+        return send(res, 400, { ok: false, error: checked.error });
+      }
+      user.passwordHash = hashPassword(newPassword);
+      users[username] = user;
+      writeJson(USERS_FILE, users);
+      // Invalidate existing sessions
+      const tokens = readJson(TOKENS_FILE, {});
+      for (const [tok, row] of Object.entries(tokens)) {
+        if (row && row.username === username) delete tokens[tok];
+      }
+      writeJson(TOKENS_FILE, tokens);
+      return send(res, 200, {
+        ok: true,
+        message: '密码已修改，请使用新密码登录',
+      });
+    }
+
+    if (req.method === 'POST' && pathname === '/auth/change-password') {
+      const auth = authUser(req);
+      if (!auth) return send(res, 401, { ok: false, error: '未登录' });
+      const body = await readBody(req);
+      const currentPassword = String(body.currentPassword || '');
+      const newPassword = String(body.newPassword || '');
+      if (newPassword.length < 6) {
+        return send(res, 400, { ok: false, error: '新密码至少 6 位' });
+      }
+      const users = readJson(USERS_FILE, {});
+      const user = users[auth.username];
+      if (!user) return send(res, 404, { ok: false, error: '用户不存在' });
+      if (!verifyPassword(currentPassword, user.passwordHash)) {
+        return send(res, 401, { ok: false, error: '当前密码错误' });
+      }
+      user.passwordHash = hashPassword(newPassword);
+      users[auth.username] = user;
+      writeJson(USERS_FILE, users);
+      return send(res, 200, { ok: true, message: '密码已修改' });
     }
 
     if (req.method === 'POST' && pathname === '/auth/logout') {
@@ -272,7 +456,51 @@ async function handle(req, res) {
     if (req.method === 'GET' && pathname === '/auth/me') {
       const auth = authUser(req);
       if (!auth) return send(res, 401, { ok: false, error: '未登录' });
-      return send(res, 200, { ok: true, username: auth.username });
+      const users = readJson(USERS_FILE, {});
+      const user = users[auth.username] || {};
+      return send(res, 200, {
+        ok: true,
+        username: auth.username,
+        email: user.email || '',
+        emailMasked: maskEmail(user.email || ''),
+        hasEmail: Boolean(user.email),
+      });
+    }
+
+    if (req.method === 'POST' && pathname === '/auth/bind-email') {
+      const auth = authUser(req);
+      if (!auth) return send(res, 401, { ok: false, error: '未登录' });
+      const body = await readBody(req);
+      const email = normalizeEmail(body.email);
+      const password = String(body.password || '');
+      if (!isValidEmail(email)) {
+        return send(res, 400, { ok: false, error: '请输入有效的邮箱' });
+      }
+      const users = readJson(USERS_FILE, {});
+      const user = users[auth.username];
+      if (!user) return send(res, 404, { ok: false, error: '用户不存在' });
+      if (!verifyPassword(password, user.passwordHash)) {
+        return send(res, 401, { ok: false, error: '密码不正确' });
+      }
+      if (user.email && normalizeEmail(user.email) !== email) {
+        return send(res, 400, {
+          ok: false,
+          error: '该账号已绑定邮箱，如需更换请联系管理员',
+        });
+      }
+      const taken = findUserByEmail(users, email);
+      if (taken && taken.username !== auth.username) {
+        return send(res, 409, { ok: false, error: '该邮箱已被注册' });
+      }
+      user.email = email;
+      users[auth.username] = user;
+      writeJson(USERS_FILE, users);
+      return send(res, 200, {
+        ok: true,
+        email,
+        emailMasked: maskEmail(email),
+        message: '邮箱绑定成功',
+      });
     }
 
     if (req.method === 'GET' && pathname === '/sync/config') {

@@ -7,6 +7,8 @@ const reasonMap = {
   bili_up_denied: '该 UP 主不在允许列表',
   bili_resolve_failed: '无法确认视频作者',
   protocol_denied: '协议不被允许',
+  load_failed: '加载失败',
+  page_crashed: '页面崩溃',
 };
 
 const originalUrl = params.get('url') || '';
@@ -42,7 +44,9 @@ document.getElementById('reason').textContent =
 const canApply =
   isHttpUrl(originalUrl) &&
   reason !== 'invalid_url' &&
-  reason !== 'protocol_denied';
+  reason !== 'protocol_denied' &&
+  reason !== 'load_failed' &&
+  reason !== 'page_crashed';
 
 const applyWrap = document.getElementById('applyWrap');
 const applyBtn = document.getElementById('applyBtn');

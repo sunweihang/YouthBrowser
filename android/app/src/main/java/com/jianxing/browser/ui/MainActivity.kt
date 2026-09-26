@@ -753,7 +753,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun refreshSetupBadge() {
-        val needs = !JianXingApp.instance.rulesStore.hasPassword()
+        val app = JianXingApp.instance
+        val needs = app.accountStore.getSession() == null || !app.rulesStore.hasPassword()
         binding.updateBadge.isVisible = needs
         binding.updateBadge.text = "!"
         binding.btnMenu.strokeColor = android.content.res.ColorStateList.valueOf(

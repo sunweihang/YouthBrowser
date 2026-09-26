@@ -75,16 +75,25 @@ class SyncClient(private val account: AccountStore) {
         }
     }
 
-    fun register(username: String, password: String, serverUrl: String? = null): Result {
+    fun register(
+        username: String,
+        password: String,
+        serverUrl: String? = null,
+        email: String? = null
+    ): Result {
         return try {
             val base = (serverUrl ?: account.getServerUrl()).trimEnd('/')
+            val body = JSONObject()
+                .put("username", username)
+                .put("password", password)
+            if (!email.isNullOrBlank()) {
+                body.put("email", email.trim())
+            }
             val data = api(
                 base,
                 "/auth/register",
                 method = "POST",
-                body = JSONObject()
-                    .put("username", username)
-                    .put("password", password)
+                body = body
             )
             if (!data.optBoolean("ok") || data.optString("token").isBlank()) {
                 return Result(ok = false, error = data.optString("error", "注册失败"))
@@ -99,6 +108,52 @@ class SyncClient(private val account: AccountStore) {
             Result(ok = true)
         } catch (e: Exception) {
             Result(ok = false, error = e.message ?: "注册失败")
+        }
+    }
+
+    fun forgotPassword(username: String, email: String, serverUrl: String? = null): Result {
+        return try {
+            val base = (serverUrl ?: account.getServerUrl()).trimEnd('/')
+            val data = api(
+                base,
+                "/auth/forgot-password",
+                method = "POST",
+                body = JSONObject().put("username", username).put("email", email)
+            )
+            if (!data.optBoolean("ok")) {
+                return Result(ok = false, error = data.optString("error", "发送失败"))
+            }
+            Result(ok = true, error = data.optString("message", "验证码已发送"))
+        } catch (e: Exception) {
+            Result(ok = false, error = e.message ?: "发送失败")
+        }
+    }
+
+    fun resetPassword(
+        username: String,
+        email: String,
+        code: String,
+        newPassword: String,
+        serverUrl: String? = null
+    ): Result {
+        return try {
+            val base = (serverUrl ?: account.getServerUrl()).trimEnd('/')
+            val data = api(
+                base,
+                "/auth/reset-password",
+                method = "POST",
+                body = JSONObject()
+                    .put("username", username)
+                    .put("email", email)
+                    .put("code", code)
+                    .put("newPassword", newPassword)
+            )
+            if (!data.optBoolean("ok")) {
+                return Result(ok = false, error = data.optString("error", "重置失败"))
+            }
+            Result(ok = true, error = data.optString("message", "密码已修改"))
+        } catch (e: Exception) {
+            Result(ok = false, error = e.message ?: "重置失败")
         }
     }
 
@@ -131,6 +186,28 @@ class SyncClient(private val account: AccountStore) {
             Result(ok = true)
         } catch (e: Exception) {
             Result(ok = false, error = e.message ?: "登录失败")
+        }
+    }
+
+    fun changePassword(currentPassword: String, newPassword: String): Result {
+        return try {
+            val s = account.getSession()
+                ?: return Result(ok = false, error = "请先登录账号")
+            val data = api(
+                s.serverUrl,
+                "/auth/change-password",
+                method = "POST",
+                token = s.token,
+                body = JSONObject()
+                    .put("currentPassword", currentPassword)
+                    .put("newPassword", newPassword)
+            )
+            if (!data.optBoolean("ok")) {
+                return Result(ok = false, error = data.optString("error", "修改失败"))
+            }
+            Result(ok = true, error = data.optString("message", "密码已修改"))
+        } catch (e: Exception) {
+            Result(ok = false, error = e.message ?: "修改失败")
         }
     }
 

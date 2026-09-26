@@ -96,7 +96,6 @@ class ParentActivity : AppCompatActivity() {
     }
 
     private fun showAuthOrDashboard() {
-        val app = JianXingApp.instance
         if (unlocked) {
             binding.authShell.isVisible = false
             binding.dashboard.isVisible = true
@@ -105,14 +104,9 @@ class ParentActivity : AppCompatActivity() {
         }
         binding.dashboard.isVisible = false
         binding.authShell.isVisible = true
-        if (!app.rulesStore.hasPassword()) {
-            binding.setupPanel.isVisible = true
-            binding.gatePanel.isVisible = false
-        } else {
-            binding.setupPanel.isVisible = false
-            binding.gatePanel.isVisible = true
-            refreshGateAccountUi()
-        }
+        binding.setupPanel.isVisible = false
+        binding.gatePanel.isVisible = true
+        refreshGateAccountUi()
     }
 
     private fun refreshGateAccountUi() {
@@ -134,30 +128,35 @@ class ParentActivity : AppCompatActivity() {
     private fun setupAuthHandlers() {
         val app = JianXingApp.instance
 
-        binding.btnSetup.setOnClickListener {
-            val p1 = binding.setupPass.text?.toString().orEmpty()
-            val p2 = binding.setupPass2.text?.toString().orEmpty()
-            binding.setupError.text = ""
-            when {
-                p1.length < 4 -> binding.setupError.text = "密码至少 4 位"
-                p1 != p2 -> binding.setupError.text = "两次密码不一致"
-                else -> {
-                    app.rulesStore.setPassword(p1)
-                    unlocked = true
-                    toast("密码已设置")
-                    showAuthOrDashboard()
-                }
-            }
-        }
-
         binding.btnUnlock.setOnClickListener {
             binding.unlockError.text = ""
             val pwd = binding.unlockPass.text?.toString().orEmpty()
+            if (pwd.isBlank()) {
+                binding.unlockError.text = "请输入账号密码"
+                return@setOnClickListener
+            }
             if (app.rulesStore.verifyPassword(pwd)) {
                 unlocked = true
                 showAuthOrDashboard()
-            } else {
+                return@setOnClickListener
+            }
+            val session = app.accountStore.getSession()
+            if (session == null) {
                 binding.unlockError.text = "密码错误"
+                return@setOnClickListener
+            }
+            io.execute {
+                val login = SyncClient(app.accountStore).login(session.username, pwd)
+                runOnUiThread {
+                    if (login.ok) {
+                        app.rulesStore.setPassword(pwd)
+                        unlocked = true
+                        HistorySync.syncNow()
+                        showAuthOrDashboard()
+                    } else {
+                        binding.unlockError.text = "密码错误"
+                    }
+                }
             }
         }
 
@@ -171,8 +170,10 @@ class ParentActivity : AppCompatActivity() {
             io.execute {
                 SyncClient(app.accountStore).logout()
                 runOnUiThread {
+                    unlocked = false
                     refreshGateAccountUi()
                     toast("已退出登录")
+                    showAuthOrDashboard()
                 }
             }
         }
@@ -182,20 +183,36 @@ class ParentActivity : AppCompatActivity() {
     private fun gateAuth(register: Boolean) {
         val app = JianXingApp.instance
         val user = binding.gateUser.text?.toString()?.trim().orEmpty()
+        val email = binding.gateEmail.text?.toString()?.trim().orEmpty()
         val pass = binding.gateAccountPass.text?.toString().orEmpty()
         binding.gateAccountError.text = ""
         if (user.isBlank() || pass.isBlank()) {
             binding.gateAccountError.text = "请填写用户名和密码"
             return
         }
+        if (register && email.isBlank()) {
+            binding.gateAccountError.text = "注册请填写邮箱"
+            return
+        }
+        if (pass.length < 6) {
+            binding.gateAccountError.text = "密码至少 6 位"
+            return
+        }
         io.execute {
             val client = SyncClient(app.accountStore)
-            val result = if (register) client.register(user, pass) else client.login(user, pass)
+            val result = if (register) {
+                client.register(user, pass, email = email)
+            } else {
+                client.login(user, pass)
+            }
             runOnUiThread {
                 if (result.ok) {
-                    refreshGateAccountUi()
+                    app.rulesStore.setPassword(pass)
+                    unlocked = true
+                    binding.gateAccountPass.setText("")
                     toast(if (register) "注册成功" else "登录成功")
                     HistorySync.syncNow()
+                    showAuthOrDashboard()
                 } else {
                     binding.gateAccountError.text = result.error ?: "失败"
                 }
@@ -372,15 +389,35 @@ class ParentActivity : AppCompatActivity() {
             val n2 = binding.securityNew2.text?.toString().orEmpty()
             binding.securityError.text = ""
             when {
-                n1.length < 4 -> binding.securityError.text = "新密码至少 4 位"
+                n1.length < 6 -> binding.securityError.text = "新密码至少 6 位"
                 n1 != n2 -> binding.securityError.text = "两次新密码不一致"
-                !JianXingApp.instance.rulesStore.changePassword(cur, n1) ->
-                    binding.securityError.text = "当前密码错误"
                 else -> {
-                    toast("密码已更新")
-                    binding.securityCurrent.setText("")
-                    binding.securityNew.setText("")
-                    binding.securityNew2.setText("")
+                    val app = JianXingApp.instance
+                    if (app.accountStore.getSession() == null) {
+                        if (!app.rulesStore.changePassword(cur, n1)) {
+                            binding.securityError.text = "当前密码错误"
+                        } else {
+                            toast("密码已更新")
+                            binding.securityCurrent.setText("")
+                            binding.securityNew.setText("")
+                            binding.securityNew2.setText("")
+                        }
+                        return@setOnClickListener
+                    }
+                    io.execute {
+                        val remote = SyncClient(app.accountStore).changePassword(cur, n1)
+                        runOnUiThread {
+                            if (!remote.ok) {
+                                binding.securityError.text = remote.error ?: "修改失败"
+                                return@runOnUiThread
+                            }
+                            app.rulesStore.setPassword(n1)
+                            toast(remote.error ?: "密码已更新")
+                            binding.securityCurrent.setText("")
+                            binding.securityNew.setText("")
+                            binding.securityNew2.setText("")
+                        }
+                    }
                 }
             }
         }
@@ -575,16 +612,25 @@ class ParentActivity : AppCompatActivity() {
         val server = binding.serverInput.text?.toString()?.trim().orEmpty()
             .ifBlank { SyncClient.DEFAULT_SERVER_URL }
         val user = binding.syncUser.text?.toString()?.trim().orEmpty()
+        val email = binding.syncEmail.text?.toString()?.trim().orEmpty()
         val pass = binding.syncPass.text?.toString().orEmpty()
         if (user.isBlank() || pass.isBlank()) {
             toast("请填写用户名和密码")
+            return
+        }
+        if (register && email.isBlank()) {
+            toast("注册请填写邮箱")
             return
         }
         binding.syncStatus.text = if (register) "正在注册…" else "正在登录…"
         io.execute {
             app.accountStore.setServerUrl(server)
             val client = SyncClient(app.accountStore)
-            val result = if (register) client.register(user, pass, server) else client.login(user, pass, server)
+            val result = if (register) {
+                client.register(user, pass, server, email)
+            } else {
+                client.login(user, pass, server)
+            }
             runOnUiThread {
                 if (result.ok) {
                     toast(if (register) "注册成功" else "登录成功")

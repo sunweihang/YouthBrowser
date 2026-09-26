@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld('youthBrowser', {
   activateTab: (id: string) => ipcRenderer.invoke('shell:activateTab', id),
   openParent: () => ipcRenderer.invoke('shell:openParent'),
   openHistory: () => ipcRenderer.invoke('shell:openHistory'),
+  listHistory: (query?: string) => ipcRenderer.invoke('history:list', query),
   openDownloads: () => ipcRenderer.invoke('shell:openDownloads'),
   savePage: () => ipcRenderer.invoke('shell:savePage'),
   downloadOpen: (id: string) => ipcRenderer.invoke('downloads:open', id),

@@ -1,0 +1,9 @@
+{
+  "host": "smtp.qq.com",
+  "port": 465,
+  "secure": true,
+  "user": "你的QQ邮箱@qq.com",
+  "pass": "QQ邮箱SMTP授权码，不是登录密码",
+  "from": "简行浏览器 <你的QQ邮箱@qq.com>",
+  "name": "简行浏览器"
+}

@@ -32,10 +32,12 @@
       <button type="button" class="icon-btn" id="back" title="后退 (Alt+←)" disabled>←</button>
       <button type="button" class="icon-btn" id="forward" title="前进 (Alt+→)" disabled>→</button>
     </div>
-    <form id="navForm" class="url-form">
-      <input id="urlInput" type="text" spellcheck="false" autocomplete="off" placeholder="输入已授权的网址" />
-      <button type="button" class="zoom-badge hidden" id="zoomBadge" title="单击可重置缩放">100%</button>
-    </form>
+    <div class="url-wrap">
+      <form id="navForm" class="url-form">
+        <input id="urlInput" type="text" spellcheck="false" autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="urlSuggest" aria-expanded="false" placeholder="输入已授权的网址" />
+        <button type="button" class="zoom-badge hidden" id="zoomBadge" title="单击可重置缩放">100%</button>
+      </form>
+    </div>
     <button type="button" class="icon-btn" id="reload" title="刷新 (F5)&#10;强制刷新 (Ctrl+Shift+R)">↻</button>
     <button type="button" class="icon-btn star-btn" id="bookmarkBtn" title="收藏本页">☆</button>
     <button type="button" class="icon-btn menu-btn" id="downloadsBtn" title="下载" aria-label="下载">
@@ -47,6 +49,7 @@
       <span class="update-badge hidden" id="updateBadge"></span>
     </button>
   </div>
+  <ul id="urlSuggest" class="url-suggest hidden" role="listbox" aria-label="历史网址建议"></ul>
   <div class="bookmarks" id="bookmarksBar">
     <div class="bookmarks-items" id="bookmarksItems"></div>
   </div>

@@ -59,7 +59,9 @@ export type BlockReason =
   | 'bili_path_denied'
   | 'bili_up_denied'
   | 'bili_resolve_failed'
-  | 'protocol_denied';
+  | 'protocol_denied'
+  | 'load_failed'
+  | 'page_crashed';
 
 export interface NavigateResult {
   allowed: boolean;

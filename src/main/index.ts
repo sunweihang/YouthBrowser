@@ -13,7 +13,7 @@ import type {
   BrowserWindowConstructorOptions,
   MenuItemConstructorOptions,
 } from 'electron';
-import { mkdirSync, readFileSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { pathToFileURL } from 'url';
 import { BookmarksStore } from './bookmarks-store';
@@ -205,9 +205,49 @@ let tabs: TabState[] = [];
 let activeTabId: string | null = null;
 let parentUnlocked = false;
 let pendingLaunchUrl: string | null = null;
+/** Track render-process-gone auto-reloads so a bad page cannot crash-loop. */
+const renderCrashState = new WeakMap<
+  Electron.WebContents,
+  { url: string; count: number; lastAt: number }
+>();
+let sessionRendererCrashes = 0;
 
 if (process.env.JIANXING_USER_DATA) {
   app.setPath('userData', process.env.JIANXING_USER_DATA);
+}
+
+function gpuSafeModePath(): string {
+  return join(app.getPath('userData'), 'gpu-safe-mode');
+}
+
+function enableGpuSafeMode(reason: string): void {
+  if (process.platform !== 'win32') return;
+  try {
+    writeFileSync(
+      gpuSafeModePath(),
+      `${new Date().toISOString()} ${reason}\n`,
+      'utf8'
+    );
+  } catch {
+    /* ignore */
+  }
+}
+
+// Windows: GPU TDR / Chromium ImmediateCrash (0x80000003) has been taking
+// down SimplyGo repeatedly. Prefer software rendering after a prior GPU
+// fault, and disable a known occlusion feature that destabilizes BrowserView.
+if (process.platform === 'win32') {
+  try {
+    if (existsSync(gpuSafeModePath())) {
+      app.disableHardwareAcceleration();
+    }
+  } catch {
+    /* ignore */
+  }
+  app.commandLine.appendSwitch(
+    'disable-features',
+    'CalculateNativeWinOcclusion'
+  );
 }
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
@@ -310,13 +350,18 @@ function recordTabVisit(tab: TabState, url?: string): void {
   historySync?.schedule();
 }
 
+/** Keep local unlock hash in sync with the account password. */
+function syncLocalUnlockPassword(password: string): { ok: boolean; error?: string } {
+  return rulesStore.setPassword(password);
+}
+
 function authorizeHistoryDelete(password?: string): { ok: boolean; error?: string } {
   if (parentUnlocked) return { ok: true };
   if (!rulesStore.hasPassword()) return { ok: true };
   if (typeof password === 'string' && rulesStore.verify(password)) {
     return { ok: true };
   }
-  return { ok: false, error: '需要家长密码才能删除历史记录' };
+  return { ok: false, error: '需要账号密码才能删除历史记录' };
 }
 
 function sendShellCommand(action: string, payload?: unknown): void {
@@ -342,6 +387,24 @@ function notifyShell(channel: string, payload: unknown): void {
 
 function isHttpUrl(url: string): boolean {
   return url.startsWith('http://') || url.startsWith('https://');
+}
+
+/** Address-bar URL while a navigation is in flight (hide file:// chrome pages). */
+function omniboxUrl(raw: string): string {
+  const s = String(raw || '').trim();
+  if (!s) return '';
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(s)) {
+    return isHttpUrl(s) ? s : '';
+  }
+  const looksLikeIp = /^(\d{1,3}\.){3}\d{1,3}([/:?]|$)/.test(s);
+  return `${looksLikeIp ? 'http' : 'https'}://${s}`;
+}
+
+function isChromeFileUrl(url: string): boolean {
+  return (
+    url.startsWith('file:') &&
+    (url.includes('/block/') || url.includes('/blank'))
+  );
 }
 
 function tabSnapshot() {
@@ -371,7 +434,7 @@ function tabSnapshot() {
         }
       : null,
     bookmarks: bookmarksStore.snapshot(),
-    needsParentSetup: !rulesStore.hasPassword(),
+    needsParentSetup: !accountStore.isLoggedIn() || !rulesStore.hasPassword(),
     filteringEnabled: rulesStore.isFilteringEnabled(),
     homepage: getHomepage(),
     bookmarksBarVisible,
@@ -440,7 +503,15 @@ function updateNavState(tab: TabState): void {
   try {
     tab.canGoBack = wc.canGoBack();
     tab.canGoForward = wc.canGoForward();
-    tab.url = wc.getURL();
+    const current = wc.getURL();
+    if (isHttpUrl(current)) {
+      tab.url = current;
+    } else if (isChromeFileUrl(current)) {
+      // Keep pending / blocked http(s) URL in the omnibox; never show file://
+      if (!isHttpUrl(tab.url)) tab.url = '';
+    } else if (current) {
+      tab.url = current;
+    }
     tab.title = wc.getTitle() || tab.title;
   } catch {
     return;
@@ -452,6 +523,50 @@ function updateNavState(tab: TabState): void {
 }
 
 const guardNavigating = new WeakSet<Electron.WebContents>();
+
+/** Redirects / superseded navigations reject loadURL with ERR_ABORTED — not a real failure. */
+function isBenignLoadError(err: unknown): boolean {
+  const e = err as { code?: string; errno?: number; message?: string };
+  if (e?.errno === -3 || e?.code === 'ERR_ABORTED') return true;
+  return /ERR_ABORTED/i.test(String(e?.message || err || ''));
+}
+
+/** Map Chromium/Electron loadURL failures to a short Chinese explanation. */
+function describeLoadError(err: unknown): string {
+  const e = err as { code?: string; errno?: number; message?: string };
+  const raw = String(e?.code || e?.message || err || '');
+  const code = (e?.code || raw.match(/ERR_[A-Z0-9_]+/)?.[0] || '').toUpperCase();
+  const table: Record<string, string> = {
+    ERR_NAME_NOT_RESOLVED: '无法解析域名（DNS）',
+    ERR_INTERNET_DISCONNECTED: '网络未连接',
+    ERR_CONNECTION_REFUSED: '连接被拒绝',
+    ERR_CONNECTION_RESET: '连接被重置',
+    ERR_CONNECTION_CLOSED: '连接已关闭',
+    ERR_CONNECTION_TIMED_OUT: '连接超时',
+    ERR_TIMED_OUT: '连接超时',
+    ERR_ADDRESS_UNREACHABLE: '地址不可达（可能需 VPN / 内网）',
+    ERR_NETWORK_CHANGED: '网络已切换，请重试',
+    ERR_NETWORK_ACCESS_DENIED: '网络访问被拒绝',
+    ERR_EMPTY_RESPONSE: '服务器无响应',
+    ERR_CONNECTION_FAILED: '无法建立连接',
+    ERR_SSL_PROTOCOL_ERROR: 'SSL 协议错误',
+    ERR_SSL_VERSION_OR_CIPHER_MISMATCH: 'SSL 版本或加密套件不匹配',
+    ERR_CERT_AUTHORITY_INVALID: '证书不被信任',
+    ERR_CERT_COMMON_NAME_INVALID: '证书域名不匹配',
+    ERR_CERT_DATE_INVALID: '证书已过期或尚未生效',
+    ERR_CERT_INVALID: '证书无效',
+    ERR_FAILED_SSL_HANDSHAKE: 'SSL 握手失败',
+    ERR_TOO_MANY_REDIRECTS: '重定向次数过多',
+    ERR_INVALID_URL: '网址格式无效',
+    ERR_INVALID_RESPONSE: '服务器返回无效响应',
+    ERR_HTTP_RESPONSE_CODE_FAILURE: '服务器返回错误状态码',
+  };
+  if (code && table[code]) return table[code];
+  for (const key of Object.keys(table)) {
+    if (raw.toUpperCase().includes(key)) return table[key];
+  }
+  return '页面加载失败';
+}
 
 async function loadTabUrl(
   wc: Electron.WebContents,
@@ -467,6 +582,8 @@ async function loadTabUrl(
   guardNavigating.add(wc);
   try {
     await wc.loadURL(url);
+  } catch (err) {
+    if (!isBenignLoadError(err)) throw err;
   } finally {
     guardNavigating.delete(wc);
   }
@@ -501,13 +618,12 @@ async function guardedLoad(tab: TabState, targetUrl: string): Promise<void> {
     return;
   }
   tab.loading = true;
+  const pendingUrl = omniboxUrl(targetUrl);
+  if (pendingUrl) tab.url = pendingUrl;
   notifyShell('shell:state', tabSnapshot());
 
   // Allow loading our own block / blank pages without rule check
-  if (
-    targetUrl.startsWith('file:') &&
-    (targetUrl.includes('/block/') || targetUrl.includes('/blank'))
-  ) {
+  if (isChromeFileUrl(targetUrl)) {
     await loadTabUrl(wc, targetUrl);
     tab.loading = false;
     updateNavState(tab);
@@ -518,12 +634,12 @@ async function guardedLoad(tab: TabState, targetUrl: string): Promise<void> {
   if (watchRequestsStore?.isApprovedUrl(targetUrl)) {
     try {
       await loadTabUrl(wc, targetUrl);
-    } catch {
+    } catch (err) {
       const blocked = buildBlockUrl(
         blockPageUrl(),
         targetUrl,
-        'invalid_url',
-        '页面加载失败'
+        'load_failed',
+        describeLoadError(err)
       );
       await loadTabUrl(wc, blocked);
     }
@@ -552,12 +668,12 @@ async function guardedLoad(tab: TabState, targetUrl: string): Promise<void> {
 
   try {
     await loadTabUrl(wc, result.finalUrl || targetUrl);
-  } catch {
+  } catch (err) {
     const blocked = buildBlockUrl(
       blockPageUrl(),
       targetUrl,
-      'invalid_url',
-      '页面加载失败'
+      'load_failed',
+      describeLoadError(err)
     );
     await loadTabUrl(wc, blocked);
   }
@@ -602,7 +718,17 @@ function attachGuards(tab: TabState): void {
     }
     // Allowed navigations must proceed natively. preventDefault + loadURL
     // drops POST bodies, so site logins reload with no error and empty fields.
-    if (canLetNativeNavigate(url, rulesStore.getRaw())) return;
+    if (canLetNativeNavigate(url, rulesStore.getRaw())) {
+      const pending = omniboxUrl(url);
+      if (pending) {
+        tab.url = pending;
+        tab.loading = true;
+        if (tab.id === activeTabId) {
+          notifyShell('shell:state', tabSnapshot());
+        }
+      }
+      return;
+    }
     event.preventDefault();
     void guardedLoad(tab, url);
   });
@@ -932,28 +1058,28 @@ function createMainWindow(): void {
       layoutViews();
       notifyShell('shell:state', tabSnapshot());
     }
-    if (!rulesStore.hasPassword()) {
-      openParentWindow(true);
+    if (!accountStore.isLoggedIn() || !rulesStore.hasPassword()) {
+      openParentWindow();
     }
   });
 }
 
-function openParentWindow(forceSetup = false): void {
+function openParentWindow(_forceSetup = false): void {
   if (parentWindow && !parentWindow.isDestroyed()) {
     parentWindow.focus();
     parentWindow.webContents.send('parent:meta', {
-      forceSetup: forceSetup || !rulesStore.hasPassword(),
+      forceSetup: false,
       unlocked: parentUnlocked && rulesStore.hasPassword(),
     });
     return;
   }
 
+  // Do not parent to mainWindow: BrowserView + child window crashes Chromium on Windows.
   parentWindow = new BrowserWindow({
     width: 900,
     height: 680,
     minWidth: 720,
     minHeight: 520,
-    parent: mainWindow ?? undefined,
     modal: false,
     title: `${APP_NAME} · 家长设置`,
     webPreferences: {
@@ -1087,12 +1213,12 @@ function openUpdateWindow(): void {
     updateWindow.focus();
     return;
   }
+  // Do not parent to mainWindow: BrowserView + child window crashes Chromium on Windows.
   updateWindow = new BrowserWindow({
     width: 440,
     height: 380,
     minWidth: 400,
     minHeight: 340,
-    parent: mainWindow ?? undefined,
     modal: false,
     title: `${APP_NAME} · 软件更新`,
     webPreferences: {
@@ -1135,12 +1261,12 @@ function openPasswordsWindow(): void {
     notifyPasswordsChanged();
     return;
   }
+  // Do not parent to mainWindow: BrowserView + child window crashes Chromium on Windows.
   passwordsWindow = new BrowserWindow({
     width: 640,
     height: 520,
     minWidth: 480,
     minHeight: 360,
-    parent: mainWindow ?? undefined,
     modal: false,
     title: `${APP_NAME} · 已保存的密码`,
     webPreferences: {
@@ -1216,12 +1342,12 @@ function openDownloadsWindow(): void {
     return;
   }
 
+  // Do not parent to mainWindow: BrowserView + child window crashes Chromium on Windows.
   downloadsWindow = new BrowserWindow({
     width: 860,
     height: 640,
     minWidth: 640,
     minHeight: 420,
-    parent: mainWindow ?? undefined,
     modal: false,
     title: `${APP_NAME} · 下载`,
     webPreferences: {
@@ -1687,14 +1813,14 @@ function showAboutDialog(): void {
     aboutWindow.focus();
     return;
   }
+  // Do not parent to mainWindow: BrowserView + child window crashes Chromium on Windows.
   aboutWindow = new BrowserWindow({
     width: 360,
     height: 300,
     resizable: false,
     minimizable: false,
     maximizable: false,
-    parent: mainWindow ?? undefined,
-    modal: Boolean(mainWindow && !mainWindow.isDestroyed()),
+    modal: false,
     title: `关于 ${APP_NAME}`,
     backgroundColor: '#121a24',
     autoHideMenuBar: true,
@@ -1723,12 +1849,12 @@ function openBookmarksManager(): void {
     return;
   }
 
+  // Do not parent to mainWindow: BrowserView + child window crashes Chromium on Windows.
   bookmarksWindow = new BrowserWindow({
     width: 920,
     height: 620,
     minWidth: 720,
     minHeight: 480,
-    parent: mainWindow ?? undefined,
     modal: false,
     title: `${APP_NAME} · 管理书签`,
     webPreferences: {
@@ -2287,32 +2413,64 @@ function registerIpc(): void {
 
   // Parent IPC
   ipcMain.handle('parent:getMeta', () => ({
-    forceSetup: !rulesStore.hasPassword(),
+    forceSetup: false,
     unlocked: parentUnlocked && rulesStore.hasPassword(),
     rules: parentUnlocked ? rulesStore.getPublic() : null,
   }));
 
   ipcMain.handle('parent:setupPassword', (_e, password: string) => {
+    // Legacy: local-only setup no longer used; account login sets the unlock hash.
     if (rulesStore.hasPassword()) {
-      return { ok: false, error: '密码已设置，请使用验证登录' };
+      return { ok: false, error: '密码已设置，请使用账号密码解锁' };
     }
-    const result = rulesStore.setPassword(password);
+    const result = syncLocalUnlockPassword(password);
     if (result.ok) parentUnlocked = true;
     return result;
   });
 
-  ipcMain.handle('parent:unlock', (_e, password: string) => {
-    if (!rulesStore.verify(password)) {
-      return { ok: false, error: '密码错误' };
+  ipcMain.handle('parent:unlock', async (_e, password: string) => {
+    if (typeof password !== 'string' || !password) {
+      return { ok: false, error: '请输入账号密码' };
     }
-    parentUnlocked = true;
-    return { ok: true, rules: rulesStore.getPublic() };
+    if (rulesStore.verify(password)) {
+      parentUnlocked = true;
+      return { ok: true, rules: rulesStore.getPublic() };
+    }
+    // Migration / forgot local hash: accept account password via server.
+    const session = accountStore.getSession();
+    if (session?.username) {
+      try {
+        const login = await syncClient.login(session.username, password);
+        if (login.ok) {
+          syncLocalUnlockPassword(password);
+          parentUnlocked = true;
+          void historySync?.syncNow();
+          return { ok: true, rules: rulesStore.getPublic() };
+        }
+      } catch {
+        // fall through
+      }
+    }
+    return { ok: false, error: '密码错误' };
   });
 
-  ipcMain.handle('parent:changePassword', (_e, current: string, next: string) => {
-    if (!parentUnlocked) return { ok: false, error: '未解锁' };
-    return rulesStore.changePassword(current, next);
-  });
+  ipcMain.handle(
+    'parent:changePassword',
+    async (_e, current: string, next: string) => {
+      if (!parentUnlocked) return { ok: false, error: '未解锁' };
+      if (typeof next !== 'string' || next.length < 6) {
+        return { ok: false, error: '新密码至少 6 位' };
+      }
+      if (accountStore.isLoggedIn()) {
+        const remote = await syncClient.changePassword(current, next);
+        if (!remote.ok) return remote;
+        const local = syncLocalUnlockPassword(next);
+        if (!local.ok) return local;
+        return { ok: true, message: remote.message || '密码已更新' };
+      }
+      return rulesStore.changePassword(current, next);
+    }
+  );
 
   ipcMain.handle('parent:setFilteringEnabled', (_e, enabled: boolean) => {
     if (!parentUnlocked) return { ok: false, error: '未解锁' };
@@ -2584,15 +2742,31 @@ function registerIpc(): void {
     'account:register',
     async (
       _e,
-      input: { username: string; password: string; serverUrl?: string }
+      input: {
+        username: string;
+        password: string;
+        email?: string;
+        serverUrl?: string;
+      }
     ) => {
       try {
         const result = await syncClient.register(
           input.username,
           input.password,
-          input.serverUrl
+          input.serverUrl,
+          input.email
         );
-        if (result.ok) void historySync?.syncNow();
+        if (result.ok) {
+          syncLocalUnlockPassword(input.password);
+          parentUnlocked = true;
+          void historySync?.syncNow();
+          return {
+            ok: true,
+            unlocked: true,
+            rules: rulesStore.getPublic(),
+            account: accountStore.getPublic(),
+          };
+        }
         return result;
       } catch (e) {
         return {
@@ -2615,7 +2789,17 @@ function registerIpc(): void {
           input.password,
           input.serverUrl
         );
-        if (result.ok) void historySync?.syncNow();
+        if (result.ok) {
+          syncLocalUnlockPassword(input.password);
+          parentUnlocked = true;
+          void historySync?.syncNow();
+          return {
+            ok: true,
+            unlocked: true,
+            rules: rulesStore.getPublic(),
+            account: accountStore.getPublic(),
+          };
+        }
         return result;
       } catch (e) {
         return {
@@ -2626,14 +2810,111 @@ function registerIpc(): void {
     }
   );
 
-  ipcMain.handle('account:logout', async () => {
+  ipcMain.handle('account:logout', async (_e, password?: string) => {
+    // Gate screen is locked: require parent password before account logout
+    if (!parentUnlocked && rulesStore.hasPassword()) {
+      if (!rulesStore.verify(typeof password === 'string' ? password : '')) {
+        return { ok: false, error: '密码错误' };
+      }
+    }
     await syncClient.logout();
+    parentUnlocked = false;
     return { ok: true, account: accountStore.getPublic() };
+  });
+
+  ipcMain.handle(
+    'account:verifyResetEmail',
+    async (_e, input: { username: string; email: string; serverUrl?: string }) => {
+      try {
+        return await syncClient.verifyResetEmail(
+          input.username,
+          input.email,
+          input.serverUrl
+        );
+      } catch (e) {
+        return {
+          ok: false,
+          error: e instanceof Error ? e.message : '验证失败',
+        };
+      }
+    }
+  );
+
+  ipcMain.handle(
+    'account:forgotPassword',
+    async (_e, input: { username: string; email: string; serverUrl?: string }) => {
+      try {
+        return await syncClient.forgotPassword(
+          input.username,
+          input.email,
+          input.serverUrl
+        );
+      } catch (e) {
+        return {
+          ok: false,
+          error: e instanceof Error ? e.message : '发送失败',
+        };
+      }
+    }
+  );
+
+  ipcMain.handle(
+    'account:resetPassword',
+    async (
+      _e,
+      input: {
+        username: string;
+        email: string;
+        code: string;
+        newPassword: string;
+        serverUrl?: string;
+      }
+    ) => {
+      try {
+        const result = await syncClient.resetPassword(input);
+        if (result.ok) {
+          syncLocalUnlockPassword(input.newPassword);
+          accountStore.clearSession();
+          parentUnlocked = false;
+        }
+        return result;
+      } catch (e) {
+        return {
+          ok: false,
+          error: e instanceof Error ? e.message : '重置失败',
+        };
+      }
+    }
+  );
+
+  ipcMain.handle(
+    'account:bindEmail',
+    async (_e, input: { email: string; password: string }) => {
+      try {
+        return await syncClient.bindEmail(input.email, input.password);
+      } catch (e) {
+        return {
+          ok: false,
+          error: e instanceof Error ? e.message : '绑定失败',
+        };
+      }
+    }
+  );
+
+  ipcMain.handle('account:me', async () => {
+    try {
+      return await syncClient.me();
+    } catch (e) {
+      return {
+        ok: false,
+        error: e instanceof Error ? e.message : '读取账号失败',
+      };
+    }
   });
 
   ipcMain.handle('account:push', async () => {
     if (!parentUnlocked) {
-      return { ok: false, error: '上传访问配置需要先输入家长密码解锁' };
+      return { ok: false, error: '上传访问配置需要先输入账号密码解锁' };
     }
     if (!accountStore.isLoggedIn()) {
       return { ok: false, error: '请先登录账号' };
@@ -2733,9 +3014,45 @@ app.whenReady().then(() => {
         if (details.reason === 'clean-exit') return;
         const tab = tabs.find((t) => t.view.webContents === contents);
         if (!tab || !isHttpUrl(tab.url)) return;
+
+        sessionRendererCrashes += 1;
+        if (sessionRendererCrashes >= 3) {
+          enableGpuSafeMode(`renderer-crash-x${sessionRendererCrashes}`);
+        }
+
+        const crashedUrl = tab.url;
+        const now = Date.now();
+        let state = renderCrashState.get(contents);
+        if (
+          !state ||
+          state.url !== crashedUrl ||
+          now - state.lastAt > 60_000
+        ) {
+          state = { url: crashedUrl, count: 0, lastAt: now };
+        }
+        state.count += 1;
+        state.lastAt = now;
+        renderCrashState.set(contents, state);
+
+        // Auto-reloading a page that keeps killing the renderer creates a
+        // tight APPCRASH loop (seen as 0x80000003 in Windows Error Reporting).
+        if (state.count >= 2) {
+          const blocked = buildBlockUrl(
+            blockPageUrl(),
+            crashedUrl,
+            'page_crashed',
+            '页面反复崩溃，已停止自动刷新。可关闭标签或换个网址。'
+          );
+          setTimeout(() => {
+            if (!isLiveWebContents(tab.view.webContents)) return;
+            void loadTabUrl(tab.view.webContents, blocked);
+          }, 100);
+          return;
+        }
+
         setTimeout(() => {
           if (isLiveWebContents(tab.view.webContents)) {
-            void guardedLoad(tab, tab.url);
+            void guardedLoad(tab, crashedUrl);
           }
         }, 400);
       },
@@ -2744,6 +3061,11 @@ app.whenReady().then(() => {
 
   app.on('child-process-gone', (_e, details) => {
     if (details.reason === 'clean-exit') return;
+    if (details.type === 'GPU') {
+      enableGpuSafeMode(
+        `gpu ${details.reason} exit=${details.exitCode}`
+      );
+    }
     reportCrash({
       kind: 'child-gone',
       level: details.type === 'GPU' ? 'fatal' : 'error',

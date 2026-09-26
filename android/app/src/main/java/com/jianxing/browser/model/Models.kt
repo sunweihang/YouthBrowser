@@ -66,7 +66,9 @@ enum class BlockReason(val code: String) {
     BILI_PATH_DENIED("bili_path_denied"),
     BILI_UP_DENIED("bili_up_denied"),
     BILI_RESOLVE_FAILED("bili_resolve_failed"),
-    PROTOCOL_DENIED("protocol_denied")
+    PROTOCOL_DENIED("protocol_denied"),
+    LOAD_FAILED("load_failed"),
+    PAGE_CRASHED("page_crashed")
 }
 
 data class NavigateResult(

@@ -36,7 +36,7 @@
     <string name="bookmarks_empty_hint">此文件夹为空</string>
     <string name="open">打开</string>
     <string name="close">关闭</string>
-    <string name="password_hint">家长密码</string>
+    <string name="password_hint">账号密码</string>
     <string name="set_password">设置密码</string>
     <string name="unlock">解锁</string>
     <string name="unlock_manage">解锁管理</string>

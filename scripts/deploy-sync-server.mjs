@@ -1,5 +1,5 @@
 /**
- * Upload sync-server.js and restart the process on the update host.
+ * Upload sync server files and restart the process on the update host.
  * Env: JIANXING_SSH_HOST / JIANXING_SSH_USER / JIANXING_SSH_PASSWORD
  */
 import { createRequire } from 'module';
@@ -11,7 +11,14 @@ const require = createRequire(import.meta.url);
 const { Client } = require('ssh2');
 
 const root = join(fileURLToPath(new URL('.', import.meta.url)), '..');
-const localServer = join(root, 'server', 'sync-server.js');
+const serverDir = join(root, 'server');
+const uploadFiles = [
+  'sync-server.js',
+  'mail.js',
+  'password-reset.js',
+  'mail.example.json',
+  'admin-set-email.js',
+];
 const host = process.env.JIANXING_SSH_HOST || '182.92.120.159';
 const username = process.env.JIANXING_SSH_USER || 'lijin';
 const password =
@@ -20,7 +27,6 @@ const password =
   '';
 
 const remoteRoot = '/home/lijin/jianxing-browser';
-const remoteServer = `${remoteRoot}/sync-server.js`;
 const dataDir = `${remoteRoot}/sync-data`;
 
 function exec(conn, cmd) {
@@ -61,8 +67,9 @@ async function main() {
     console.error('Set JIANXING_SSH_PASSWORD or pass --password=...');
     process.exit(1);
   }
-  if (!existsSync(localServer)) {
-    throw new Error(`Missing ${localServer}`);
+  for (const name of uploadFiles) {
+    const local = join(serverDir, name);
+    if (!existsSync(local)) throw new Error(`Missing ${local}`);
   }
 
   const conn = new Client();
@@ -75,7 +82,23 @@ async function main() {
 
   try {
     await exec(conn, `mkdir -p "${remoteRoot}" "${dataDir}"`);
-    await upload(conn, localServer, remoteServer);
+    for (const name of uploadFiles) {
+      await upload(conn, join(serverDir, name), `${remoteRoot}/${name}`);
+    }
+    await exec(
+      conn,
+      `set -e
+if [ ! -f "${dataDir}/mail.json" ]; then
+  if [ -f /var/www/simple/data/mail.json ]; then
+    cp /var/www/simple/data/mail.json "${dataDir}/mail.json"
+    echo "copied mail.json from simple-im"
+  else
+    cp "${remoteRoot}/mail.example.json" "${dataDir}/mail.json"
+    echo "seeded mail.example.json (please fill SMTP)"
+  fi
+  chmod 600 "${dataDir}/mail.json" || true
+fi`
+    );
 
     const restart = `
 set -e
@@ -94,11 +117,11 @@ else
     sleep 1
     kill -9 $pids 2>/dev/null || true
   fi
-  nohup env PORT=3910 DATA_DIR="${dataDir}" node "${remoteServer}" >> "${remoteRoot}/sync-server.log" 2>&1 &
+  nohup env PORT=3910 DATA_DIR="${dataDir}" node "${remoteRoot}/sync-server.js" >> "${remoteRoot}/sync-server.log" 2>&1 &
   echo "started pid $!"
 fi
 sleep 1
-curl -sS http://127.0.0.1:3910/health || curl -sS http://127.0.0.1:3910/simplygo-api/health || curl -sS http://127.0.0.1:3910/jianxing-api/health || true
+curl -sS http://127.0.0.1:3910/health || curl -sS http://127.0.0.1:3910/simplygo-api/health || true
 echo
 `;
     const out = await exec(conn, restart);

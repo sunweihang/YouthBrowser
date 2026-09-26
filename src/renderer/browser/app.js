@@ -255,10 +255,188 @@ urlInput.addEventListener('dragstart', (e) => {
 wireDropTarget(bookmarksBar, 'toolbar');
 wireDropTarget(bookmarksItems, 'toolbar');
 
+const urlSuggest = document.getElementById('urlSuggest');
+const SUGGEST_LIMIT = 8;
+let suggestItems = [];
+let suggestIndex = -1;
+let suggestFromKeys = false;
+let suggestTimer = 0;
+let suggestReqId = 0;
+
+function hideUrlSuggest() {
+  suggestItems = [];
+  suggestIndex = -1;
+  suggestFromKeys = false;
+  urlSuggest.innerHTML = '';
+  urlSuggest.classList.add('hidden');
+  urlInput.setAttribute('aria-expanded', 'false');
+  syncChromeExtra();
+}
+
+function scoreHistoryEntry(entry, q) {
+  if (!q) return 1;
+  const url = (entry.url || '').toLowerCase();
+  const host = (entry.host || '').toLowerCase();
+  const title = (entry.title || '').toLowerCase();
+  if (host.startsWith(q)) return 400;
+  if (host.includes(q)) return 300;
+  if (url.includes(`://${q}`) || url.includes(`://www.${q}`)) return 280;
+  if (url.startsWith(q)) return 260;
+  if (url.includes(q)) return 180;
+  if (title.includes(q)) return 80;
+  return 0;
+}
+
+function dedupeHistory(entries, q) {
+  const seen = new Set();
+  const scored = [];
+  for (const entry of entries || []) {
+    const url = String(entry.url || '').trim();
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    const score = scoreHistoryEntry(entry, q);
+    if (!score) continue;
+    scored.push({ entry, score });
+  }
+  scored.sort(
+    (a, b) =>
+      b.score - a.score ||
+      (b.entry.visitedAt || 0) - (a.entry.visitedAt || 0)
+  );
+  return scored.slice(0, SUGGEST_LIMIT).map((s) => s.entry);
+}
+
+function renderUrlSuggest(items) {
+  suggestItems = items;
+  suggestIndex = -1;
+  suggestFromKeys = false;
+  urlSuggest.innerHTML = '';
+  if (!items.length) {
+    hideUrlSuggest();
+    return;
+  }
+  for (let i = 0; i < items.length; i += 1) {
+    const item = items[i];
+    const li = document.createElement('li');
+    li.setAttribute('role', 'option');
+    li.id = `urlSuggest-${i}`;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'url-suggest-item';
+    btn.dataset.index = String(i);
+    const title = document.createElement('span');
+    title.className = 'url-suggest-title';
+    title.textContent = item.title || item.host || item.url;
+    const url = document.createElement('span');
+    url.className = 'url-suggest-url';
+    url.textContent = item.url;
+    btn.appendChild(title);
+    btn.appendChild(url);
+    btn.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      pickUrlSuggest(i);
+    });
+    li.appendChild(btn);
+    urlSuggest.appendChild(li);
+  }
+  urlSuggest.classList.remove('hidden');
+  urlInput.setAttribute('aria-expanded', 'true');
+  syncChromeExtra();
+}
+
+function setSuggestActive(index) {
+  if (!suggestItems.length) return;
+  suggestFromKeys = true;
+  suggestIndex = (index + suggestItems.length) % suggestItems.length;
+  const rows = urlSuggest.querySelectorAll('.url-suggest-item');
+  rows.forEach((el, i) => {
+    el.classList.toggle('active', i === suggestIndex);
+  });
+  const active = rows[suggestIndex];
+  if (active) active.scrollIntoView({ block: 'nearest' });
+}
+
+function pickUrlSuggest(index) {
+  const item = suggestItems[index];
+  if (!item) return;
+  urlInput.value = item.url;
+  hideUrlSuggest();
+  api.navigate(item.url);
+}
+
+async function refreshUrlSuggest() {
+  if (document.activeElement !== urlInput) {
+    hideUrlSuggest();
+    return;
+  }
+  const q = urlInput.value.trim();
+  const reqId = ++suggestReqId;
+  try {
+    const res = await api.listHistory(q);
+    if (reqId !== suggestReqId || document.activeElement !== urlInput) return;
+    if (!res || !res.ok) {
+      hideUrlSuggest();
+      return;
+    }
+    const items = dedupeHistory(res.entries, q.toLowerCase());
+    renderUrlSuggest(items);
+  } catch {
+    if (reqId === suggestReqId) hideUrlSuggest();
+  }
+}
+
+function scheduleUrlSuggest() {
+  if (suggestTimer) clearTimeout(suggestTimer);
+  suggestTimer = setTimeout(() => {
+    suggestTimer = 0;
+    void refreshUrlSuggest();
+  }, 80);
+}
+
 navForm.addEventListener('submit', (e) => {
   e.preventDefault();
+  if (
+    suggestFromKeys &&
+    !urlSuggest.classList.contains('hidden') &&
+    suggestIndex >= 0 &&
+    suggestItems[suggestIndex]
+  ) {
+    pickUrlSuggest(suggestIndex);
+    return;
+  }
+  hideUrlSuggest();
   const url = urlInput.value.trim();
   if (url) api.navigate(url);
+});
+
+urlInput.addEventListener('input', () => {
+  scheduleUrlSuggest();
+});
+
+urlInput.addEventListener('focus', () => {
+  scheduleUrlSuggest();
+});
+
+urlInput.addEventListener('blur', () => {
+  setTimeout(() => {
+    if (document.activeElement !== urlInput) hideUrlSuggest();
+  }, 120);
+});
+
+urlInput.addEventListener('keydown', (e) => {
+  const open = !urlSuggest.classList.contains('hidden') && suggestItems.length;
+  if (e.key === 'ArrowDown' && open) {
+    e.preventDefault();
+    setSuggestActive(suggestIndex < 0 ? 0 : suggestIndex + 1);
+  } else if (e.key === 'ArrowUp' && open) {
+    e.preventDefault();
+    setSuggestActive(suggestIndex < 0 ? suggestItems.length - 1 : suggestIndex - 1);
+  } else if (e.key === 'Escape' && open) {
+    e.preventDefault();
+    hideUrlSuggest();
+  } else if (e.key === 'Tab' && open) {
+    hideUrlSuggest();
+  }
 });
 
 backBtn.addEventListener('click', () => api.goBack());
@@ -313,6 +491,9 @@ const updateBadge = document.getElementById('updateBadge');
 
 function overlayHeight() {
   let extra = 0;
+  if (urlSuggest && !urlSuggest.classList.contains('hidden')) {
+    extra += Math.max(0, Math.ceil(urlSuggest.getBoundingClientRect().height));
+  }
   if (!findBar.classList.contains('hidden')) {
     extra += Math.max(36, Math.ceil(findBar.getBoundingClientRect().height));
   }

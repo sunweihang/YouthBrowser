@@ -410,6 +410,13 @@ input,
   display: none !important;
 }
 
+.url-wrap {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
 .url-form {
   flex: 1;
   min-width: 0;
@@ -424,6 +431,56 @@ input,
 
 .url-form:focus-within {
   border-color: var(--accent);
+}
+
+.url-suggest {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  max-height: 280px;
+  overflow-y: auto;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--line);
+  user-select: none;
+}
+
+.url-suggest.hidden {
+  display: none;
+}
+
+.url-suggest-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 14px;
+  cursor: pointer;
+  border: none;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+}
+
+.url-suggest-item:hover,
+.url-suggest-item.active {
+  background: rgba(61, 139, 253, 0.18);
+}
+
+.url-suggest-title {
+  font-size: 13px;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.url-suggest-url {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 #urlInput {

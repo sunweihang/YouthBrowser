@@ -9,12 +9,8 @@
 </head>
 <body>
   <div id="authShell" class="auth-shell">
-    <section id="setupPanel" class="auth-card hidden">
-      <h1>首次设置</h1>
-      <label>新密码<input id="setupPass" type="password" autocomplete="new-password" /></label>
-      <label>确认密码<input id="setupPass2" type="password" autocomplete="new-password" /></label>
-      <p class="error" id="setupError"></p>
-      <button type="button" id="setupBtn" class="primary">创建并进入设置</button>
+    <section id="setupPanel" class="auth-card hidden" aria-hidden="true">
+      <!-- Legacy: account password is now the only password -->
     </section>
 
     <section id="accountGatePanel" class="auth-card hidden">
@@ -30,7 +26,8 @@
         <button type="submit" class="primary">登录</button>
       </form>
       <p class="sub gate-switch">
-        没有账号？
+        <button type="button" class="link-btn" id="gateForgotBtn">忘记密码？</button>
+        · 没有账号？
         <button type="button" class="link-btn" id="gateGotoRegister">去注册</button>
       </p>
     </section>
@@ -40,6 +37,9 @@
       <form id="gateRegisterForm" class="stack-form">
         <label>用户名
           <input id="gateRegisterUser" type="text" autocomplete="username" />
+        </label>
+        <label>邮箱
+          <input id="gateRegisterEmail" type="email" autocomplete="email" />
         </label>
         <label>密码
           <input id="gateRegisterPass" type="password" autocomplete="new-password" />
@@ -56,10 +56,50 @@
       </p>
     </section>
 
+    <section id="accountResetPanel" class="auth-card hidden">
+      <h1>重置密码</h1>
+      <p class="sub">填写注册时的用户名和邮箱，获取验证码后设置新密码。</p>
+      <div class="stack-form" id="gateResetVerifyStep">
+        <label>用户名
+          <input id="gateResetUser" type="text" autocomplete="username" />
+        </label>
+        <label>邮箱
+          <input id="gateResetEmail" type="email" autocomplete="email" />
+        </label>
+        <p class="error" id="gateResetError"></p>
+        <p class="ok" id="gateResetOk"></p>
+        <div class="row-actions">
+          <button type="button" class="primary" id="gateResetVerifyBtn">验证邮箱</button>
+          <button type="button" class="link-btn" id="gateResetBackBtn">返回登录</button>
+        </div>
+      </div>
+      <div class="stack-form hidden" id="gateResetCodeStep">
+        <p class="help" id="gateResetVerifiedText"></p>
+        <label>邮箱验证码
+          <div class="reset-code-row">
+            <input id="gateResetCode" type="text" maxlength="6" inputmode="numeric" autocomplete="one-time-code" />
+            <button type="button" id="gateResetSendBtn">发送验证码</button>
+          </div>
+        </label>
+        <label>新密码
+          <input id="gateResetPass" type="password" autocomplete="new-password" />
+        </label>
+        <label>确认新密码
+          <input id="gateResetPass2" type="password" autocomplete="new-password" />
+        </label>
+        <p class="error" id="gateResetCodeError"></p>
+        <p class="ok" id="gateResetCodeOk"></p>
+        <div class="row-actions">
+          <button type="button" class="primary" id="gateResetSaveBtn">确认修改</button>
+          <button type="button" class="link-btn" id="gateResetBackBtn2">返回登录</button>
+        </div>
+      </div>
+    </section>
+
     <section id="unlockPanel" class="auth-card hidden">
       <h1>家长验证</h1>
       <p class="sub">已登录 <strong id="unlockAccountName">—</strong></p>
-      <label>家长密码<input id="unlockPass" type="password" autocomplete="current-password" /></label>
+      <label>账号密码<input id="unlockPass" type="password" autocomplete="current-password" /></label>
       <p class="error" id="unlockError"></p>
       <div class="row-actions unlock-actions">
         <button type="button" id="unlockBtn" class="primary">解锁管理</button>
@@ -271,6 +311,7 @@
               <div class="row-actions">
                 <button type="submit" class="primary">登录</button>
                 <button type="button" class="link-btn" id="gotoRegisterBtn">没有账号？去注册</button>
+                <button type="button" class="link-btn" id="gotoResetBtn">忘记密码？</button>
               </div>
             </form>
           </div>
@@ -280,6 +321,9 @@
             <form id="registerForm" class="stack-form">
               <label>用户名
                 <input id="registerUser" type="text" autocomplete="username" />
+              </label>
+              <label>邮箱
+                <input id="registerEmail" type="email" autocomplete="email" />
               </label>
               <label>密码
                 <input id="registerPass" type="password" autocomplete="new-password" />
@@ -294,10 +338,62 @@
               </div>
             </form>
           </div>
+
+          <div class="card hidden" id="resetCard">
+            <h3>重置密码</h3>
+            <p class="help">填写注册用户名和邮箱，获取验证码后设置新密码。</p>
+            <div class="stack-form" id="resetVerifyStep">
+              <label>用户名
+                <input id="resetUser" type="text" autocomplete="username" />
+              </label>
+              <label>邮箱
+                <input id="resetEmail" type="email" autocomplete="email" />
+              </label>
+              <p class="error" id="resetError"></p>
+              <p class="ok" id="resetOk"></p>
+              <div class="row-actions">
+                <button type="button" class="primary" id="resetVerifyBtn">验证邮箱</button>
+                <button type="button" class="link-btn" id="resetBackBtn">返回登录</button>
+              </div>
+            </div>
+            <div class="stack-form hidden" id="resetCodeStep">
+              <p class="help" id="resetVerifiedText"></p>
+              <label>邮箱验证码
+                <div class="reset-code-row">
+                  <input id="resetCode" type="text" maxlength="6" inputmode="numeric" autocomplete="one-time-code" />
+                  <button type="button" id="resetSendBtn">发送验证码</button>
+                </div>
+              </label>
+              <label>新密码
+                <input id="resetPass" type="password" autocomplete="new-password" />
+              </label>
+              <label>确认新密码
+                <input id="resetPass2" type="password" autocomplete="new-password" />
+              </label>
+              <p class="error" id="resetCodeError"></p>
+              <p class="ok" id="resetCodeOk"></p>
+              <div class="row-actions">
+                <button type="button" class="primary" id="resetSaveBtn">确认修改</button>
+                <button type="button" class="link-btn" id="resetBackBtn2">返回登录</button>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div class="card hidden" id="accountLoggedIn">
           <h3 id="accountName">—</h3>
+          <p class="help" id="accountEmailLine">邮箱：未绑定</p>
+          <div class="stack-form" id="bindEmailBox">
+            <label>绑定邮箱（用于找回密码）
+              <input id="bindEmailInput" type="email" autocomplete="email" />
+            </label>
+            <label>当前密码
+              <input id="bindEmailPass" type="password" autocomplete="current-password" />
+            </label>
+            <p class="error" id="bindEmailError"></p>
+            <p class="ok" id="bindEmailOk"></p>
+            <button type="button" class="primary" id="bindEmailBtn">绑定邮箱</button>
+          </div>
           <div class="sync-versions" id="syncVersions">
             <div class="sync-row">
               <span>本地版本</span>
@@ -326,7 +422,8 @@
           <h2>账号安全</h2>
         </header>
         <div class="card">
-          <h3>修改家长密码</h3>
+          <h3>修改密码</h3>
+          <p class="help">账号登录与本机解锁使用同一密码；修改后两端同时生效。</p>
           <div class="stack-form">
             <label>当前密码<input id="curPass" type="password" autocomplete="current-password" /></label>
             <label>新密码<input id="newPass" type="password" autocomplete="new-password" /></label>

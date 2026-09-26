@@ -98,7 +98,9 @@
       bili_path_denied: 'B 站路径未授权',
       bili_up_denied: '该 UP 主不在允许列表',
       bili_resolve_failed: '无法确认视频作者',
-      protocol_denied: '协议不被允许'
+      protocol_denied: '协议不被允许',
+      load_failed: '加载失败',
+      page_crashed: '页面崩溃'
     };
     function param(name) {
       try {
@@ -142,7 +144,7 @@
       document.getElementById('url').parentNode.style.display = 'none';
       document.querySelector('dt').style.display = 'none';
     }
-    var canApply = !welcome && isHttpUrl(originalUrl) && reason !== 'invalid_url' && reason !== 'protocol_denied';
+    var canApply = !welcome && isHttpUrl(originalUrl) && reason !== 'invalid_url' && reason !== 'protocol_denied' && reason !== 'load_failed' && reason !== 'page_crashed';
     if (canApply) document.getElementById('applyWrap').classList.remove('hidden');
     document.getElementById('applyBtn').addEventListener('click', function () {
       var btn = document.getElementById('applyBtn');
