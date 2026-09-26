@@ -267,6 +267,12 @@ function hideUrlSuggest() {
   suggestItems = [];
   suggestIndex = -1;
   suggestFromKeys = false;
+  // Invalidate in-flight listHistory so a late reply cannot reopen the popup.
+  suggestReqId += 1;
+  if (suggestTimer) {
+    clearTimeout(suggestTimer);
+    suggestTimer = 0;
+  }
   urlSuggest.innerHTML = '';
   urlSuggest.classList.add('hidden');
   urlInput.setAttribute('aria-expanded', 'false');
@@ -361,6 +367,8 @@ function pickUrlSuggest(index) {
   if (!item) return;
   urlInput.value = item.url;
   hideUrlSuggest();
+  // Match Firefox: close the popup and leave the address bar after a pick.
+  urlInput.blur();
   api.navigate(item.url);
 }
 
@@ -406,7 +414,10 @@ navForm.addEventListener('submit', (e) => {
   }
   hideUrlSuggest();
   const url = urlInput.value.trim();
-  if (url) api.navigate(url);
+  if (url) {
+    urlInput.blur();
+    api.navigate(url);
+  }
 });
 
 urlInput.addEventListener('input', () => {
