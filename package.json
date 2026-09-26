@@ -6,7 +6,7 @@
   "author": "简行浏览器",
   "license": "MIT",
   "scripts": {
-    "build": "node scripts/build.mjs",
+    "build": "node scripts/ensure-rcedit.mjs && node scripts/build.mjs",
     "start": "npm run build && electron .",
     "dev": "npm run build && electron .",
     "pack": "npm run build && electron-builder --dir",
@@ -21,6 +21,7 @@
   "build": {
     "appId": "com.jianxing.browser",
     "productName": "简行浏览器",
+    "afterPack": "./scripts/after-pack.mjs",
     "directories": {
       "output": "release",
       "buildResources": "build"

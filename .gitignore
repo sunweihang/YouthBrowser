@@ -22,3 +22,9 @@ android/app/build/
 android/local.properties
 .asar-fix/
 .tmp-asar/
+.tools/
+tools/rcedit-*.exe
+scripts/local-dist-install.cmd
+scripts/applocker-*.ps1
+scripts/fix-wincodesign.ps1
+scripts/extract-wincodesign-admin.ps1
