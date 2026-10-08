@@ -97,6 +97,19 @@ export const BILI_HOST_SUFFIXES = [
   'akamaized.net',
 ];
 
+/**
+ * Always-allowed when filtering is on: Cloudflare Turnstile / challenge
+ * (and related CDNs). Sites like Cursor login embed these; blocking them
+ * causes "Can't verify the user is human" without showing a captcha.
+ */
+export const HUMAN_VERIFICATION_HOST_SUFFIXES = [
+  'challenge.cloudflare.com',
+  'challenges.cloudflare.com',
+  'turnstile.cloudflare.com',
+  'cloudflareinsights.com',
+  'cf-assets.com',
+];
+
 export function emptyBiliConfig(): BilibiliExtensionConfig {
   return { allowedMids: [], midNotes: {} };
 }

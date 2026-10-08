@@ -2,6 +2,7 @@ import {
   asBiliConfig,
   BILI_HOST_SUFFIXES,
   BlockReason,
+  HUMAN_VERIFICATION_HOST_SUFFIXES,
   NavigateResult,
   RulesConfig,
   SiteGroup,
@@ -20,6 +21,14 @@ function normalizeHost(host: string): string {
 export function isBiliFamilyHost(host: string): boolean {
   const h = normalizeHost(host);
   return BILI_HOST_SUFFIXES.some(
+    (suffix) => h === suffix || h.endsWith(`.${suffix}`)
+  );
+}
+
+/** Cloudflare Turnstile / bot-check hosts — always pass the whitelist. */
+export function isHumanVerificationHost(host: string): boolean {
+  const h = normalizeHost(host);
+  return HUMAN_VERIFICATION_HOST_SUFFIXES.some(
     (suffix) => h === suffix || h.endsWith(`.${suffix}`)
   );
 }
@@ -221,6 +230,7 @@ export function isDownloadAllowed(rawUrl: string, rules: RulesConfig): boolean {
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
   if (!rules.filteringEnabled) return true;
   const host = normalizeHost(url.hostname);
+  if (isHumanVerificationHost(host)) return true;
   if (isBiliSearchHost(host) && hasEnabledBiliExtension(rules)) return true;
   if (isBiliStaticOrApi(host) && hasEnabledBiliExtension(rules)) return true;
   return matchingGroups(host, rules).length > 0;
@@ -246,6 +256,7 @@ export function canLetNativeNavigate(
   if (!rules.filteringEnabled) return true;
 
   const host = normalizeHost(url.hostname);
+  if (isHumanVerificationHost(host)) return true;
   if (host === 'b23.tv' || host === 'www.b23.tv') return false;
   if (isBiliSearchHost(host) && hasEnabledBiliExtension(rules)) return true;
   if (isBiliStaticOrApi(host) && hasEnabledBiliExtension(rules)) {
@@ -307,6 +318,11 @@ export async function canNavigate(
   }
 
   let host = normalizeHost(url.hostname);
+
+  // Bot / human checks (Cloudflare Turnstile etc.) must always load.
+  if (isHumanVerificationHost(host)) {
+    return allow(url.toString());
+  }
 
   if (host === 'b23.tv' || host === 'www.b23.tv') {
     const final = await resolveShortUrl(url.toString());

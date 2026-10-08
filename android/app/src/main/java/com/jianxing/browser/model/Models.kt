@@ -111,5 +111,14 @@ object BiliConstants {
         "akamaized.net"
     )
 
+    /** Cloudflare Turnstile / challenge — always allowed under filtering. */
+    val HUMAN_VERIFICATION_HOST_SUFFIXES = listOf(
+        "challenge.cloudflare.com",
+        "challenges.cloudflare.com",
+        "turnstile.cloudflare.com",
+        "cloudflareinsights.com",
+        "cf-assets.com"
+    )
+
     const val REQUEST_GROUP_NAME = "访问申请"
 }

@@ -44,6 +44,14 @@ object NavigationGuard {
         return false
     }
 
+    /** Cloudflare Turnstile / bot-check hosts — always pass the whitelist. */
+    fun isHumanVerificationHost(host: String): Boolean {
+        val h = normalizeHost(host)
+        return BiliConstants.HUMAN_VERIFICATION_HOST_SUFFIXES.any { suffix ->
+            h == suffix || h.endsWith(".$suffix")
+        }
+    }
+
     private fun matchingGroups(host: String, rules: RulesConfig): List<SiteGroup> =
         rules.groups.filter { it.enabled && hostAllowed(host, it.hosts) }
 
@@ -218,6 +226,7 @@ object NavigationGuard {
         if (!rules.filteringEnabled) return true
         val host = normalizeHost(url.host ?: "")
         if (host.isEmpty()) return false
+        if (isHumanVerificationHost(host)) return true
         if (isBiliSearchHost(host) && hasEnabledBiliExtension(rules)) return true
         if (isBiliStaticOrApi(host) && hasEnabledBiliExtension(rules)) return true
         return matchingGroups(host, rules).isNotEmpty()
@@ -241,6 +250,7 @@ object NavigationGuard {
 
         val host = normalizeHost(url.host ?: "")
         if (host.isEmpty()) return false
+        if (isHumanVerificationHost(host)) return true
         if (host == "b23.tv" || host == "www.b23.tv") return false
         if (isBiliSearchHost(host) && hasEnabledBiliExtension(rules)) return true
         if (isBiliStaticOrApi(host) && hasEnabledBiliExtension(rules)) {
@@ -304,6 +314,11 @@ object NavigationGuard {
 
         var host = normalizeHost(url.host ?: "")
         if (host.isEmpty()) return deny(BlockReason.INVALID_URL, "无法解析的网址")
+
+        // Bot / human checks (Cloudflare Turnstile etc.) must always load.
+        if (isHumanVerificationHost(host)) {
+            return allow(urlString)
+        }
 
         var workingUrl = url
         if (host == "b23.tv" || host == "www.b23.tv") {

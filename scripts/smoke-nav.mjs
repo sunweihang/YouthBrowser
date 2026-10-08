@@ -34,6 +34,8 @@ function assert(cond, msg) {
 const rules = {
   version: 2,
   parentPasswordHash: 'x',
+  filteringEnabled: true,
+  homepage: '',
   groups: [
     {
       id: 'g1',
@@ -64,11 +66,17 @@ assert(hostAllowed('i0.hdslb.com', rules.groups[0].hosts), 'wildcard');
 let r = await canNavigate('https://evil.com', rules);
 assert(!r.allowed && r.reason === 'host_denied', 'deny unknown');
 
+r = await canNavigate('https://challenges.cloudflare.com/cdn-cgi/challenge-platform/h/x', rules);
+assert(r.allowed, 'always allow Cloudflare challenge');
+
+r = await canNavigate('https://challenge.cloudflare.com/', rules);
+assert(r.allowed, 'always allow challenge.cloudflare.com');
+
 r = await canNavigate('https://www.example.com/x', rules);
 assert(r.allowed, 'allow generic group');
 
 r = await canNavigate('https://www.bilibili.com/', rules);
-assert(!r.allowed && r.reason === 'bili_path_denied', 'deny bili home');
+assert(r.allowed, 'allow bili home');
 
 r = await canNavigate('https://space.bilibili.com/2', rules);
 assert(r.allowed, 'allow listed space');

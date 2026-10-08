@@ -24,7 +24,6 @@ import {
   buildBlockUrl,
   canLetNativeNavigate,
   canNavigate,
-  hostAllowed,
   isDownloadAllowed,
   parseExternalAppUrl,
 } from './navigation-guard';
@@ -765,20 +764,8 @@ function attachGuards(tab: TabState): void {
       return;
     }
     if (!rulesStore.isFilteringEnabled()) return;
-    let allowed = false;
-    try {
-      const u = new URL(url);
-      if (u.protocol === 'http:' || u.protocol === 'https:') {
-        const host = u.hostname.toLowerCase().replace(/\.$/, '');
-        const rules = rulesStore.getRaw();
-        allowed = rules.groups.some(
-          (g) => g.enabled && hostAllowed(host, g.hosts)
-        );
-      }
-    } catch {
-      allowed = false;
-    }
-    if (allowed) return;
+    // Same policy as will-navigate (includes Cloudflare human-check hosts).
+    if (canLetNativeNavigate(url, rulesStore.getRaw())) return;
     event.preventDefault();
     const blocked = buildBlockUrl(
       blockPageUrl(),
